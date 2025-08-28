@@ -57,6 +57,10 @@ ABSL_FLAG(float, projection_density_factor, 1.5f,
 ABSL_FLAG(float, num_projections_exponent, .5,
           "Exponent to determine number of projections.");
 
+// Hao uses GlobalBestFirst
+ABSL_FLAG(std::string, growing_strategy, "Local",
+          "Type of Tree Growing Strategy: 'Local' - depth-first using NodeTrain or 'GlobalBestFirst' - PriorityQueue the nodes based on Score() Gain.");
+
 ABSL_FLAG(bool, compute_oob_performances, true,
           "Whether to compute out-of-bag performances (only for csv mode).");
 
@@ -274,9 +278,17 @@ int main(int argc, char** argv) {
 
   rf.set_winner_take_all_inference(false);
 
-  rf.mutable_decision_tree()->mutable_growing_strategy_best_first_global()->set_max_num_nodes(-1);
+  const auto growing_strategy = absl::GetFlag(FLAGS_growing_strategy);
 
-  rf.mutable_decision_tree()->mutable_growing_strategy_best_first_global();
+  if (growing_strategy == "GlobalBestFirst") {
+    rf.mutable_decision_tree()->mutable_growing_strategy_best_first_global();
+    rf.mutable_decision_tree()->mutable_growing_strategy_best_first_global()->set_max_num_nodes(-1);
+  }
+  else if (growing_strategy != "Local") {
+    std::cerr << "Unknown growing_strategy: " << growing_strategy<< ". Use Local or GlobalBestFirst.\n";
+    return 1;
+  }
+
   rf.mutable_decision_tree()->set_min_examples(1);
 
   /* #region Conditional Feature Split Type Configuration */

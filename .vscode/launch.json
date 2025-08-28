@@ -1,5 +1,63 @@
 {
   "configurations": [
+            {
+      "name": "Synthetic 100k - Debugging Parallel Chrono",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
+      "args": [
+        "--input_mode=synthetic",
+        "--rows=100000",
+        "--cols=4096",
+        "--num_trees", "1"
+      ],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    },
+        {
+      "name": "Trunk 100k - Debugging Parallel Chrono",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
+      "args": [
+        "--input_mode=csv",
+        "--train_csv=${workspaceFolder}/benchmarks/data/trunk_data/100000x4096.csv",
+        "--label_col=target",
+        "--num_trees", "1"
+      ],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    },
     {
       "name": "Oblique Forest Haberman",
       "type": "cppdbg",
@@ -201,17 +259,6 @@
           "text": "-gdb-set disassembly-flavor intel",
           "ignoreFailures": true
         }
-      ]
-    },
-    {
-      "name": "per_function_chrono.py Exact Oblique",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/benchmarks/src/per_function_chrono.py",
-      "console": "integratedTerminal",
-      "args": [
-        "--numerical_split_type=Exact",
-        "--feature_split_type=Oblique"
       ]
     },
     {
