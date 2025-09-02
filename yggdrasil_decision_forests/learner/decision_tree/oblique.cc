@@ -216,6 +216,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   static bool first_call = true;
   static int node_counter = 0;
   std::ofstream log;
+  // TODO Remove this matrix & print edgelist
   std::vector<std::vector<float>> matrix;
 
   if constexpr (PRINT_PROJECTION_MATRICES) {
@@ -226,6 +227,13 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       log.open("benchmarks/results/ydf_projection_matrices/projection_matrices.txt", std::ios::app);
     }
     matrix.resize(num_projections, std::vector<float>(num_features, 0.f));
+  }
+
+  using SparseProjection = std::vector<std::pair<int, float>>;
+
+  std::vector<SparseProjection> projection_buffer;
+  if constexpr (PRINT_PROJECTION_MATRICES) {
+    projection_buffer.reserve(num_projections);
   }
 
   if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) {
@@ -281,10 +289,11 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       }
 
       if constexpr (PRINT_PROJECTION_MATRICES) {
-        // std::cout << current_projection;
-        for (auto chosen_feature : current_projection) {
-          std::cout << proj_idx << ", " << chosen_feature.attribute_idx << ", " << chosen_feature.weight << std::endl;
-          // matrix[proj_idx][chosen_feature.attribute_idx] = chosen_feature.weight;
+        // store the current projection sparsely
+        SparseProjection& buf = projection_buffer.emplace_back();
+        buf.reserve(current_projection.size());
+        for (const auto& feat : current_projection) {
+          buf.emplace_back(feat.attribute_idx, feat.weight);
         }
       }
 
@@ -353,26 +362,20 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   // Save projection matrix to file if desired
   if constexpr (PRINT_PROJECTION_MATRICES) {
-    log << "Node " << node_counter++ << " | "
-        << num_projections << " projections × "
-        << num_features << " features\n";
+      std::ofstream log("benchmarks/results/ydf_projection_matrices/projection_matrices.txt",
+                        std::ios::app);
 
-    log << "      ";
-    for (const int feat_idx : config_link.numerical_features()) {
-      log << std::setw(6) << feat_idx;
-    }
-    log << '\n';
+      log << "Node " << node_counter++ << " | "
+          << projection_buffer.size() << " projections\n";
 
-    for (int r = 0; r < num_projections; ++r) {
-      log << "proj " << r << ' ';
-      for (int c = 0; c < num_features; ++c) {
-        log << std::setw(6) << matrix[r][c];
+      // “edge-list” layout :  projection_id  feature_id  weight
+      for (size_t p = 0; p < projection_buffer.size(); ++p) {
+        for (const auto& [idx, w] : projection_buffer[p]) {
+          log << p << ' ' << idx << ' ' << w << '\n';
+        }
       }
       log << '\n';
     }
-    log << '\n';
-    log.close();
-  }
 
   if (!best_projection.empty()) {
     RETURN_IF_ERROR(SetCondition(best_projection, best_threshold,
