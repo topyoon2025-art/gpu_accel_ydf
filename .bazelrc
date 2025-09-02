@@ -38,6 +38,8 @@ build:chrono_profile_verbose --cxxopt="-DCHRONO_MEASUREMENTS_LOG_LEVEL_FLAG=2"
 build:fixed_1000_projections --cxxopt="-DHARD_CODE_1000_PROJECTIONS_FLAG=true"
 build:enable_dynamic_histogramming --cxxopt="-DENABLE_DYNAMIC_HISTOGRAMMING_FLAG=true"
 
+build:print_projection_matrices --cxxopt="-DPRINT_PROJECTION_MATRICES_FLAG=1"
+
 
 ###############################################################################
 # Sensible project-wide defaults

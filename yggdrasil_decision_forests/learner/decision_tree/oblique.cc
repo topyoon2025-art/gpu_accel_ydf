@@ -50,9 +50,17 @@
 #include <fstream>
 #include <iomanip>
 
+
+#ifndef PRINT_PROJECTION_MATRICES_FLAG
+  #define PRINT_PROJECTION_MATRICES_FLAG 0
+#endif
+
+
 namespace yggdrasil_decision_forests {
 namespace model {
 namespace decision_tree {
+
+static constexpr bool PRINT_PROJECTION_MATRICES = PRINT_PROJECTION_MATRICES_FLAG;
 
 namespace {
 using std::is_same;
@@ -63,7 +71,6 @@ using LDACache = internal::LDACache;
 }
 
 
-static constexpr bool ENABLE_PROJECTION_MATRIX_LOGGING = false;
 // Already in splitter_scanner.h . Apparently it carries from all the way there
 // static constexpr bool MEASURE_CHRONO_TIMES = true;
 
@@ -211,12 +218,12 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   std::ofstream log;
   std::vector<std::vector<float>> matrix;
 
-  if constexpr (ENABLE_PROJECTION_MATRIX_LOGGING) {
+  if constexpr (PRINT_PROJECTION_MATRICES) {
     if (first_call) {
-      log.open("ariel_results/projection_matrices.txt", std::ios::trunc);
+      log.open("benchmarks/results/ydf_projection_matrices/projection_matrices.txt", std::ios::trunc);
       first_call = false;
     } else {
-      log.open("ariel_results/projection_matrices.txt", std::ios::app);
+      log.open("benchmarks/results/ydf_projection_matrices/projection_matrices.txt", std::ios::app);
     }
     matrix.resize(num_projections, std::vector<float>(num_features, 0.f));
   }
@@ -271,6 +278,14 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
         // 2b. ApplyProjection timing
         start = std::chrono::high_resolution_clock::now();
+      }
+
+      if constexpr (PRINT_PROJECTION_MATRICES) {
+        // std::cout << current_projection;
+        for (auto chosen_feature : current_projection) {
+          std::cout << proj_idx << ", " << chosen_feature.attribute_idx << ", " << chosen_feature.weight << std::endl;
+          // matrix[proj_idx][chosen_feature.attribute_idx] = chosen_feature.weight;
+        }
       }
 
       RETURN_IF_ERROR(
@@ -337,7 +352,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   /* #region Post-Processing - unimportant for runtime */
 
   // Save projection matrix to file if desired
-  if constexpr (ENABLE_PROJECTION_MATRIX_LOGGING) {
+  if constexpr (PRINT_PROJECTION_MATRICES) {
     log << "Node " << node_counter++ << " | "
         << num_projections << " projections × "
         << num_features << " features\n";

@@ -7,7 +7,7 @@
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
       "args": [
         "--input_mode=synthetic",
-        "--rows=100000",
+        "--rows=1000",
         "--cols=4096",
         "--num_trees", "1",
         "--compute_oob_performances", "false"
@@ -124,14 +124,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
       "args": [
-        "--train_csv",
-        "${workspaceFolder}/benchmarks/data/processed_wise1_data.csv",
-        "--label_col",
-        "Cancer Status",
-        "--projection_density_factor",
-        "3",
-        "--input_mode",
-        "csv"
+        "--input_mode", "csv",
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
