@@ -9,7 +9,8 @@
         "--input_mode=synthetic",
         "--rows=100000",
         "--cols=4096",
-        "--num_trees", "1"
+        "--num_trees", "1",
+        "--compute_oob_performances", "false"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
