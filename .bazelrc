@@ -17,6 +17,7 @@ build:intel_debug --cxxopt=-std=c++17
 build:intel_debug --strip=never          # keep symbols, don’t fiddle with fission
 build:intel_debug --cxxopt=-g --linkopt=-g
 build:intel_debug --cxxopt=-O0 --linkopt=-O0
+build:intel_debug --copt=-D_GLIBCXX_DEBUG # vector range checks
 
 
 # -------------------------------------------------
@@ -33,8 +34,8 @@ build:intel_profiler --cxxopt=-gno-split-dwarf
 # Prints out timings for each function. Only use with run_chrono_xps.py
 build:multithreaded_chrono_profile --cxxopt="-DCHRONO_ENABLED"
 # TODO Deprecate this
-build:chrono_profile --cxxopt="-DCHRONO_MEASUREMENTS_LOG_LEVEL_FLAG=1"
-build:chrono_profile_verbose --cxxopt="-DCHRONO_MEASUREMENTS_LOG_LEVEL_FLAG=2"
+# build:chrono_profile --cxxopt="-DCHRONO_MEASUREMENTS_LOG_LEVEL_FLAG=1"
+# build:chrono_profile_verbose --cxxopt="-DCHRONO_MEASUREMENTS_LOG_LEVEL_FLAG=2"
 build:fixed_1000_projections --cxxopt="-DHARD_CODE_1000_PROJECTIONS_FLAG=true"
 build:enable_dynamic_histogramming --cxxopt="-DENABLE_DYNAMIC_HISTOGRAMMING_FLAG=true"
 

@@ -9,7 +9,7 @@
         "--input_mode=synthetic",
         "--rows=1000",
         "--cols=4096",
-        "--num_trees", "1",
+        "--num_trees", "1000",
         "--compute_oob_performances", "false"
       ],
       "stopAtEntry": false,

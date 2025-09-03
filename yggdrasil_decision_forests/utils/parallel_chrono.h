@@ -65,7 +65,7 @@ class ScopedTimer {
 struct TreeScope {
   explicit TreeScope(int tree) {
     tls_ctx.cur_tree = tree;
-    tls_ctx.cur_depth = -1;
+    tls_ctx.cur_depth = 0;
     if (tree >= 0 && tree < static_cast<int>(tree_thread_id().size()))
       tree_thread_id()[tree] = std::this_thread::get_id();
   }
