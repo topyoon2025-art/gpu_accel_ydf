@@ -4,9 +4,13 @@
 from __future__ import annotations
 import argparse, csv, os, re, subprocess, sys, time
 from pathlib import Path
+from pathlib import Path
+import subprocess, sys, logging
 
 import pandas as pd
-import utils.utils as utils      # your helper module
+import utils.utils as utils
+
+log = logging.getLogger(__name__)
 
 
 def get_args():
@@ -159,12 +163,33 @@ if __name__ == "__main__":
                if a.numerical_split_type == "Dynamic Histogramming"
                else f"--numerical_split_type={a.numerical_split_type}")
 
-    if a.input_mode == "synthetic":
+    if a.input_mode == "uniform_synthetic": 
         cmd += ["--input_mode=synthetic", f"--rows={a.rows}", f"--cols={a.cols}"]
-    else:
-        cmd += ["--input_mode=csv",
-                f"--train_csv={a.train_csv}",
-                f"--label_col={a.label_col}"]
+    elif a.input_mode == "trunk_synthetic":
+        trunk_dir = Path("benchmarks") / "data" / "trunk_data"
+        trunk_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = trunk_dir / f"{a.rows}x{a.cols}.csv"
+
+        # ------------------------------------------------------------------
+        # 3. Create the file if it does not already exist
+        # ------------------------------------------------------------------
+        if not csv_path.exists():
+            log.info("Synthetic trunk file %s is missing – generating it now.", csv_path)
+            subprocess.run(
+                [
+                    sys.executable,
+                    "benchmarks/src/utils/make_trunk_dataset.py",
+                    f"--rows={a.rows}",
+                    f"--cols={a.cols}"
+                ],
+                check=True,
+            )
+        else:
+            log.info("Reusing existing synthetic trunk file: %s", csv_path)
+    
+    cmd += ["--input_mode=csv",
+            f"--train_csv={a.train_csv}",
+            f"--label_col={a.label_col}"]
 
     try:
         utils.configure_cpu_for_benchmarks(True)

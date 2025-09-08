@@ -16,7 +16,7 @@ def get_base_parser():
     parser = argparse.ArgumentParser(add_help=False)  # add_help=False to avoid duplicate help
     
     # Common arguments
-    parser.add_argument("--input_mode", choices=["synthetic", "csv"], default="csv")
+    parser.add_argument("--input_mode", choices=["uniform_synthetic", "trunk_synthetic", "csv"], default="csv")
     parser.add_argument("--train_csv", default="benchmarks/data/processed_wise1_data.csv")
     parser.add_argument("--label_col", default="Cancer Status")
     parser.add_argument("--experiment_name", default="")
