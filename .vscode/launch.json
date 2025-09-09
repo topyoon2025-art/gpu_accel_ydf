@@ -150,12 +150,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
       "args": [
-        "--train_csv",
-        "${workspaceFolder}/benchmarks/datadata/processed_wise1_data.csv",
-        "--label_col",
-        "Cancer Status",
-        "--projection_density_factor",
-        "3",
+        "--input_mode", "csv",
         "--numerical_split_type",
         "Equal Width"
       ],
