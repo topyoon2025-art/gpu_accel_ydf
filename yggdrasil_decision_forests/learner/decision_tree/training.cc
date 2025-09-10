@@ -2209,8 +2209,7 @@ float na_replacement, const UnsignedExampleIdx min_num_obs,
 const proto::DecisionTreeTrainingConfig &dt_config,
 const utils::IntegerDistributionDouble &label_distribution,
 const int32_t attribute_idx, utils::RandomEngine *random,
-      proto::NodeCondition *condition,
-      std::chrono::duration<double>* histogramming_time, std::chrono::duration<double>* scan_splits_time
+      proto::NodeCondition *condition
     )
 {
 /* #region Checks */
@@ -2250,13 +2249,6 @@ struct CandidateSplit
     return threshold < other.threshold;
   }
 };
-std::chrono::high_resolution_clock::time_point start, end;
-std::chrono::duration<double> dur;
-
-if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) { start = std::chrono::high_resolution_clock::now(); }
-
-if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>=2) { start = std::chrono::high_resolution_clock::now(); }
-
 
 std::vector<float> bins;
 // Randomly select some threshold values. Takes very little time
@@ -2266,14 +2258,6 @@ ASSIGN_OR_RETURN(
                                   dt_config.numerical_split().num_candidates(),
                                   attributes, min_value, max_value, random));
 
-if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>=2) {
-end = std::chrono::high_resolution_clock::now();
-dur = end - start;
-std::cout << " - - Initializing Histogram Bins took: " << dur.count() << "s" << std::endl;
-}
-
-if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>=2) { start = std::chrono::high_resolution_clock::now(); }
-
 // Takes very little time
 std::vector<CandidateSplit> candidate_splits(bins.size());
 for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
@@ -2281,12 +2265,6 @@ for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
   auto &candidate_split = candidate_splits[split_idx];
   candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
   candidate_split.threshold = bins[split_idx];
-}
-
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>=2) {
-end = std::chrono::high_resolution_clock::now();
-dur = end - start;
-std::cout << " - - Setting Split Distributions took: " << dur.count() << "s" << std::endl;
 }
 
 // Compute the split score of each threshold.
@@ -2310,15 +2288,6 @@ for (const auto example_idx : selected_examples)
   it_split->pos_label_distribution.Add(label, weight);
 }
 
-if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) {
-end = std::chrono::high_resolution_clock::now();
-*histogramming_time = end - start;
-// std::cout << " - - Looping over selected_examples took: " << dur.count() << "s" << std::endl;
-}
-
-if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) { start = std::chrono::high_resolution_clock::now(); }
-
-
 for (int split_idx = candidate_splits.size() - 2; split_idx >= 0;
      split_idx--)
 {
@@ -2329,18 +2298,9 @@ for (int split_idx = candidate_splits.size() - 2; split_idx >= 0;
   dst.pos_label_distribution.Add(src.pos_label_distribution);
 }
 
-// Included in ScanSplits
-//       if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) {
-// end = std::chrono::high_resolution_clock::now();
-// dur = end - start;
-// std::cout << " - - Updating Split Distributions took: " << dur.count() << "s" << std::endl;
-// }
-
 const double initial_entropy = label_distribution.Entropy();
 utils::BinaryToIntegerConfusionMatrixDouble confusion;
 confusion.SetNumClassesIntDim(num_label_classes);
-
-// if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) { start = std::chrono::high_resolution_clock::now(); }
 
 // Select the best threshold.
 bool found_split = false;
@@ -2379,13 +2339,6 @@ for (auto &candidate_split : candidate_splits)
   }
 }
 
-if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) {
-end = std::chrono::high_resolution_clock::now();
-*scan_splits_time = end - start;
-// std::cout << " - - Computing Entropy took: " << dur.count() << "s" << std::endl;
-// std::cout << " - - ScanSplits took: " << dur.count() << "s" << std::endl;
-}
-
 return found_split ? SplitSearchResult::kBetterSplitFound
                    : SplitSearchResult::kNoBetterSplitFound;
 }
@@ -2401,8 +2354,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       const proto::DecisionTreeTrainingConfig &dt_config,
       const utils::IntegerDistributionDouble &label_distribution,
       const int32_t attribute_idx, const InternalTrainConfig &internal_config,
-      proto::NodeCondition *condition, SplitterPerThreadCache *cache, 
-      std::chrono::duration<double>* sort_time, std::chrono::duration<double>* scan_splits_time)
+      proto::NodeCondition *condition, SplitterPerThreadCache *cache)
   {
     /* #region Deal w/ empty weights */
     if (!weights.empty()) { DCHECK_EQ(weights.size(), labels.size()); }
@@ -2452,7 +2404,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
           // This is what's done by MIGHT, w/ default settings
           return FindBestSplit_LabelUnweightedBinaryClassificationFeatureNumerical(
               selected_examples, feature_filler, label_filler, initializer,
-              min_num_obs, attribute_idx, condition, &cache->cache_v2, sort_time, scan_splits_time);
+              min_num_obs, attribute_idx, condition, &cache->cache_v2);
         }
         else { return absl::InvalidArgumentError("Non supported strategy."); }
       }
@@ -2482,7 +2434,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         {
           return FindBestSplit_LabelBinaryClassificationFeatureNumerical(
               selected_examples, feature_filler, label_filler, initializer,
-              min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+              min_num_obs, attribute_idx, condition, &cache->cache_v2);
         }
         else
         {
@@ -2520,7 +2472,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         {
           return FindBestSplit_LabelUnweightedClassificationFeatureNumerical(
               selected_examples, feature_filler, label_filler, initializer,
-              min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+              min_num_obs, attribute_idx, condition, &cache->cache_v2);
         }
         else
         {
@@ -2554,7 +2506,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         {
           return FindBestSplit_LabelClassificationFeatureNumerical(
               selected_examples, feature_filler, label_filler, initializer,
-              min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+              min_num_obs, attribute_idx, condition, &cache->cache_v2);
         }
         else
         {
@@ -2598,7 +2550,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelUnweightedBinaryClassificationFeatureDiscretizedNumerical( // NOLINT(whitespace/line_length)
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
       else
       {
@@ -2609,7 +2561,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelBinaryClassificationFeatureDiscretizedNumerical(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
     }
     else
@@ -2624,7 +2576,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelUnweightedClassificationFeatureDiscretizedNumerical(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
       else
       {
@@ -2635,7 +2587,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelClassificationFeatureDiscretizedNumerical(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
     }
   }
@@ -2866,7 +2818,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     {
       return FindBestSplit_LabelHessianRegressionFeatureNumerical<weighted>(
           selected_examples, feature_filler, label_filler, initializer,
-          min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+          min_num_obs, attribute_idx, condition, &cache->cache_v2);
     }
     else
     {
@@ -2936,7 +2888,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     return FindBestSplit_LabelHessianRegressionFeatureDiscretizedNumerical<
         weighted>(selected_examples, feature_filler, label_filler, initializer,
-                  min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+                  min_num_obs, attribute_idx, condition, &cache->cache_v2);
   }
 
   template <bool weighted>
@@ -2997,7 +2949,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     {
       return FindBestSplit_LabelRegressionFeatureNumerical<weighted>(
           selected_examples, feature_filler, label_filler, initializer,
-          min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+          min_num_obs, attribute_idx, condition, &cache->cache_v2);
     }
     else
     {
@@ -3059,7 +3011,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     return FindBestSplit_LabelRegressionFeatureDiscretizedNumerical<weighted>(
         selected_examples, feature_filler, label_filler, initializer, min_num_obs,
-        attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+        attribute_idx, condition, &cache->cache_v2);
   }
 
   absl::StatusOr<SplitSearchResult> FindSplitLabelClassificationFeatureNA(
@@ -3091,7 +3043,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelUnweightedBinaryClassificationFeatureNACart(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
       else
       {
@@ -3103,7 +3055,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelBinaryClassificationFeatureNACart(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
     }
     else
@@ -3118,7 +3070,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelUnweightedClassificationFeatureNACart(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
       else
       {
@@ -3129,7 +3081,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelClassificationFeatureNACart(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
     }
   }
@@ -3170,7 +3122,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     return FindBestSplit_LabelHessianRegressionFeatureNACart<weighted>(
         selected_examples, feature_filler, label_filler, initializer, min_num_obs,
-        attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+        attribute_idx, condition, &cache->cache_v2);
   }
 
   absl::StatusOr<SplitSearchResult> FindSplitLabelClassificationFeatureBoolean(
@@ -3209,7 +3161,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelUnweightedBinaryClassificationFeatureBooleanCart( // NOLINT(whitespace/line_length)
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
       else
       {
@@ -3221,7 +3173,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelBinaryClassificationFeatureBooleanCart(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
     }
     else
@@ -3237,7 +3189,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelUnweightedClassificationFeatureBooleanCart(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
       else
       {
@@ -3249,7 +3201,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         return FindBestSplit_LabelClassificationFeatureBooleanCart(
             selected_examples, feature_filler, label_filler, initializer,
-            min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+            min_num_obs, attribute_idx, condition, &cache->cache_v2);
       }
     }
   }
@@ -3288,7 +3240,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     return FindBestSplit_LabelRegressionFeatureBooleanCart<weighted>(
         selected_examples, feature_filler, label_filler, initializer, min_num_obs,
-        attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+        attribute_idx, condition, &cache->cache_v2);
   }
 
   template absl::StatusOr<SplitSearchResult>
@@ -3353,7 +3305,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     return FindBestSplit_LabelHessianRegressionFeatureBooleanCart<weighted>(
         selected_examples, feature_filler, label_filler, initializer, min_num_obs,
-        attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+        attribute_idx, condition, &cache->cache_v2);
   }
 
   template <bool weighted>
@@ -3411,7 +3363,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       return FindBestSplit_LabelHessianRegressionFeatureCategoricalCart<
           weighted>(selected_examples, feature_filler, label_filler,
                     initializer, min_num_obs, attribute_idx, condition,
-                    &cache->cache_v2, nullptr, nullptr);
+                    &cache->cache_v2);
 
     case proto::Categorical::kRandom:
       return FindBestSplit_LabelHessianRegressionFeatureCategoricalRandom<
@@ -3472,7 +3424,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     case proto::Categorical::kCart:
       return FindBestSplit_LabelRegressionFeatureCategoricalCart<weighted>(
           selected_examples, feature_filler, label_filler, initializer,
-          min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+          min_num_obs, attribute_idx, condition, &cache->cache_v2);
 
     case proto::Categorical::kRandom:
       return FindBestSplit_LabelRegressionFeatureCategoricalRandom<weighted>(
@@ -4237,7 +4189,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     return FindBestSplit_LabelUpliftClassificationFeatureNumerical(
         selected_examples, feature_filler, label_filler, initializer, min_num_obs,
-        attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+        attribute_idx, condition, &cache->cache_v2);
   }
 
   absl::StatusOr<SplitSearchResult>
@@ -4272,7 +4224,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     return FindBestSplit_LabelUpliftNumericalFeatureNumerical(
         selected_examples, feature_filler, label_filler, initializer, min_num_obs,
-        attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+        attribute_idx, condition, &cache->cache_v2);
   }
 
   absl::StatusOr<SplitSearchResult>
@@ -4319,7 +4271,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     case proto::Categorical::kCart:
       return FindBestSplit_LabelUpliftClassificationFeatureCategoricalCart(
           selected_examples, feature_filler, label_filler, initializer,
-          min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+          min_num_obs, attribute_idx, condition, &cache->cache_v2);
 
     case proto::Categorical::kRandom:
       return FindBestSplit_LabelUpliftClassificationFeatureCategoricalRandom(
@@ -4377,7 +4329,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     case proto::Categorical::kCart:
       return FindBestSplit_LabelUpliftNumericalFeatureCategoricalCart(
           selected_examples, feature_filler, label_filler, initializer,
-          min_num_obs, attribute_idx, condition, &cache->cache_v2, nullptr, nullptr);
+          min_num_obs, attribute_idx, condition, &cache->cache_v2);
 
     case proto::Categorical::kRandom:
       return FindBestSplit_LabelUpliftNumericalFeatureCategoricalRandom(
@@ -5095,8 +5047,6 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     bool enable_timing = false;
     auto nodetrain_start = std::chrono::high_resolution_clock::now();
 
-    if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL > 0) { std::cout << "\n\nDepth " << depth << "\n\n"; }
-
     /* #region Exit Conditions */
     if (selected_examples.empty())
       { return absl::InternalError("No examples fed to the node trainer"); }
@@ -5306,11 +5256,6 @@ return found_split ? SplitSearchResult::kBetterSplitFound
           &neg_constraints));
     }
     /* #endregion */
-
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - start;
-    if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL_FLAG>=2)
-        { std::cout << "\n NodeTrain Finalization took: " << dur.count() << "s" << std::endl; }
 
     /**************** RECURSE LEFT & RIGHT ****************/
 

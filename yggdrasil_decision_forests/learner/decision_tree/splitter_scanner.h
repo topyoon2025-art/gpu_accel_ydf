@@ -49,10 +49,6 @@
 #define YGGDRASIL_DECISION_FORESTS_LEARNER_DECISION_TREE_SPLITTER_SCANNER_H_
 
 // If these aren't defined, go with regular/fastest setup
-#ifndef CHRONO_MEASUREMENTS_LOG_LEVEL_FLAG
-  #define CHRONO_MEASUREMENTS_LOG_LEVEL_FLAG 0
-#endif
-
 #ifndef HARD_CODE_1000_PROJECTIONS_FLAG
   #define HARD_CODE_1000_PROJECTIONS_FLAG false
 #endif
@@ -89,11 +85,6 @@ namespace yggdrasil_decision_forests {
 namespace model {
 namespace decision_tree {
 
-// choose from {2="verbose", 1="concise", 0="none"}
-// verbose also times fns. that take ~0 time
-// none is much faster, for end-to-end timing
-// TODO swap back to True/False. This isn't useful
-static constexpr int CHRONO_MEASUREMENTS_LOG_LEVEL = CHRONO_MEASUREMENTS_LOG_LEVEL_FLAG;
 // Normally, n_projections bounded by n_features. Override it to time cache hits w.r.t n_features
 static constexpr bool HARD_CODE_1000_PROJECTIONS = HARD_CODE_1000_PROJECTIONS_FLAG;
 static constexpr bool ENABLE_DYNAMIC_HISTOGRAMMING = ENABLE_DYNAMIC_HISTOGRAMMING_FLAG;
@@ -643,11 +634,6 @@ void FillExampleBucketSet(
 
   /* #region Allocate the buckets | takes practically 0 time */
 
-  std::chrono::high_resolution_clock::time_point start, end;
-  std::chrono::duration<double> dur;
-
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) { start = std::chrono::high_resolution_clock::now(); }
-
   // Init. takes practically 0 time - time logic removed
   // Allocate the buckets.
   example_bucket_set->items.resize(feature_filler.NumBuckets());
@@ -663,15 +649,6 @@ void FillExampleBucketSet(
   }
 
   /* #endregion */
-
-  
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) { // This takes ~0 time
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - start;
-    std::cout << " - - Bucket Allocation & Initialization=0 took: " << dur.count() << "s" << std::endl;
-  }
-
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) { start = std::chrono::high_resolution_clock::now(); }
 
   // Fill the buckets. Also takes practically 0 time
   for (size_t select_idx = 0; select_idx < selected_examples.size(); select_idx++) {
@@ -694,17 +671,9 @@ void FillExampleBucketSet(
     label_filler.Finalize(&bucket.label);
   }
 
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) { // Takes no time. Don't print, will flood output
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - start;
-    std::cout << " - - Filling & Finalizing the Buckets took: " << dur.count() << "s" << std::endl;
-  }
-
   static_assert(!(ExampleBucketSet::FeatureBucketType::kRequireSorting &&
                   require_label_sorting),
                 "Bucket require sorting");
-
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) { start = std::chrono::high_resolution_clock::now(); }
 
   //  Sort the buckets.
   if constexpr (ExampleBucketSet::FeatureBucketType::kRequireSorting) {
@@ -715,11 +684,6 @@ void FillExampleBucketSet(
   }
 
   // Time whole function in parent instead. Sort takes ~98% of this fn
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) {
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - start;
-    std::cout << " - - SortFeature took: " << dur.count() << "s" << std::endl;
-  }
 
   if constexpr (require_label_sorting) {
     std::sort(example_bucket_set->items.begin(),
@@ -1409,15 +1373,10 @@ SplitSearchResult FindBestSplit(
     const typename ExampleBucketSet::LabelBucketType::Filler& label_filler,
     const typename ExampleBucketSet::LabelBucketType::Initializer& initializer,
     const int min_num_obs, const int attribute_idx,
-    proto::NodeCondition* condition, PerThreadCacheV2* cache,
-  std::chrono::duration<double>* sort_time = nullptr, std::chrono::duration<double>* scan_split_time = nullptr) {
+    proto::NodeCondition* condition, PerThreadCacheV2* cache) {
   
   DCHECK(condition != nullptr);
   
-  std::chrono::high_resolution_clock::time_point start, end;
-  std::chrono::duration<double> dur;
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) { start = std::chrono::high_resolution_clock::now(); }
-
   // Create buckets. - takes practically 0 time
   ExampleBucketSet& example_set_accumulator =
       *GetCachedExampleBucketSet<ExampleBucketSet>(cache);
@@ -1428,23 +1387,9 @@ SplitSearchResult FindBestSplit(
       selected_examples, feature_filler, label_filler, &example_set_accumulator,
       cache);
 
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) {
-    end = std::chrono::high_resolution_clock::now();
-    *sort_time = end - start;
-    // std::cout << "\n - Sort (FillExampleBucketSet) took: " << dur.count() << "s\n\n";
-  }
-
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) { start = std::chrono::high_resolution_clock::now(); }
-
   auto scan_splits_result = ScanSplits<ExampleBucketSet, LabelBucketSet, bucket_interpolation>(
       feature_filler, initializer, example_set_accumulator,
       selected_examples.size(), min_num_obs, attribute_idx, condition, cache);
-
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL) {
-    end = std::chrono::high_resolution_clock::now();
-    *scan_split_time = end - start;
-    // std::cout << " - ScanSplits took: " << dur.count() << "s\n\n";
-  }
 
   return scan_splits_result;
 }

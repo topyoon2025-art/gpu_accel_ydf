@@ -495,12 +495,6 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                              rf_config.decision_tree(), deployment_.num_threads()
                             ));
 
-        if constexpr (decision_tree::CHRONO_MEASUREMENTS_LOG_LEVEL) {
-          end = std::chrono::high_resolution_clock::now();
-          dur = end - start;
-          std::cout << "\n Preprocess training dataset took: " << dur.count() << "s" << std::endl;
-        }
-
         std::vector<const dataset::VerticalDataset::NumericalVectorSequenceColumn *>
             vector_sequence_columns(train_dataset.ncol(), nullptr);
 
@@ -692,8 +686,6 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
               CHRONO_SCOPE_TOP(yggdrasil_decision_forests::chrono_prof::kTreeTrain);   // measures whole task
               #endif
 
-                  if constexpr (decision_tree::CHRONO_MEASUREMENTS_LOG_LEVEL > 0) { std::cout << "\nStarting work for Tree " << tree_idx << ":\n"; }
-
                   /* #region Exit Conditions */
                       // The user interrupted training.
                       if (stop_training_trigger_ != nullptr && *stop_training_trigger_) {
@@ -760,10 +752,6 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
 
                   auto& decision_tree = (*mdl->mutable_decision_trees())[tree_idx];
 
-                  if constexpr (decision_tree::CHRONO_MEASUREMENTS_LOG_LEVEL) {
-                  start = std::chrono::high_resolution_clock::now();
-                  }
-
                   // Ariel - bootstrap sampling decided here 
                   if (rf_config.bootstrap_training_dataset()) {
                     if (!rf_config.sampling_with_replacement() &&
@@ -797,20 +785,11 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                     std::iota(selected_examples.begin(), selected_examples.end(), 0);
                   }
 
-                  // Don't Remove - needed to detect a new Tree has started training
-                  if constexpr (decision_tree::CHRONO_MEASUREMENTS_LOG_LEVEL) {
-                    end = std::chrono::high_resolution_clock::now();
-                    dur = end - start;
-                    std::cout << "\nSelecting Bootstrapped Samples took: " << dur.count() << "s" << std::endl;
-                  }
-
                   decision_tree::InternalTrainConfig internal_config;
                   internal_config.preprocessing = &preprocessing;
                   internal_config.timeout = timeout;
                   if (vector_sequence_computer)
                     { internal_config.vector_sequence_computer = vector_sequence_computer.get(); }
-
-                    if constexpr (decision_tree::CHRONO_MEASUREMENTS_LOG_LEVEL) { start = std::chrono::high_resolution_clock::now(); }
 
                   // Ariel: Training starts here
                   auto status_train = decision_tree::Train(
@@ -818,12 +797,6 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                       rf_config.decision_tree(), deployment(), weights, &random,
                       decision_tree.get(), internal_config
                     );
-
-                    if constexpr (decision_tree::CHRONO_MEASUREMENTS_LOG_LEVEL) {
-                      end = std::chrono::high_resolution_clock::now();
-                      dur = end - start;
-                      std::cout << "\nDecisionTree::Train() alone took: " << dur.count() << "s\n\n";
-                    }
 
                   start = std::chrono::high_resolution_clock::now();
 
@@ -1130,12 +1103,6 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
         // start = std::chrono::high_resolution_clock::now();
 
         auto return_val = std::move(mdl);
-
-        if constexpr (decision_tree::CHRONO_MEASUREMENTS_LOG_LEVEL > 1) {
-          end = std::chrono::high_resolution_clock::now();
-          dur = end - start;
-          std::cout << "\nPost-processing after Train took: " << dur.count() << "s\n\n";
-        }
         
         /* --- std::move(mdl) doesn't seem to take any time - Omitted ---
         end = std::chrono::high_resolution_clock::now();
