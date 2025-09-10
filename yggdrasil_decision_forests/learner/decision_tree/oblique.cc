@@ -162,12 +162,6 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     SplitterPerThreadCache* cache) {
 
   /* #region Initializations */
-    
-  std::chrono::high_resolution_clock::time_point start, end;
-  std::chrono::duration<double> dur;
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>0) {
-      start = std::chrono::high_resolution_clock::now();
-  }
 
   // ---------- basic sanity‑checks --------------------
   if (!weights.empty()) {
@@ -186,29 +180,21 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       dt_config.sparse_oblique_split().projection_density_factor() /
       config_link.numerical_features_size();
 
-  // This is a class object
   ProjectionEvaluator projection_evaluator(train_dataset,
                                            config_link.numerical_features());
 
-  // TODO Understand Memory Access Pattern. Is this heavy enough to be important?
-  // Bunch of memory accesses here - how long do they take?
-  // BEWARE: These are executed once per fn. call - may be irrelevant
   const auto selected_labels = ExtractLabels(label_stats, selected_examples);
 
-  // TODO Are weights relevant to the basic Oblique case?
   std::vector<float> selected_weights;
   if (!weights.empty()) {
     selected_weights = Extract(weights, selected_examples);
   }
-
-  /* #endregion */
 
   std::vector<UnsignedExampleIdx> dense_example_idxs(selected_examples.size());
   std::iota(dense_example_idxs.begin(), dense_example_idxs.end(), 0);
 
   auto& projection_values = cache->projection_values;
 
-  /* #region Initializations pt. 2 */
   Projection best_projection, current_projection;
   float best_threshold = 0.f;
   const int num_features = config_link.numerical_features_size();
@@ -216,46 +202,17 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   static bool first_call = true;
   static int node_counter = 0;
   std::ofstream log;
-  // TODO Remove this matrix & print edgelist
-  std::vector<std::vector<float>> matrix;
 
-  if constexpr (PRINT_PROJECTION_MATRICES) {
-    if (first_call) {
-      log.open("benchmarks/results/ydf_projection_matrices/projection_matrices.txt", std::ios::trunc);
-      first_call = false;
-    } else {
-      log.open("benchmarks/results/ydf_projection_matrices/projection_matrices.txt", std::ios::app);
-    }
-    matrix.resize(num_projections, std::vector<float>(num_features, 0.f));
-  }
-
+  // For printing Projection Matrix
   using SparseProjection = std::vector<std::pair<int, float>>;
-
   std::vector<SparseProjection> projection_buffer;
   if constexpr (PRINT_PROJECTION_MATRICES) {
     projection_buffer.reserve(num_projections);
   }
 
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>1) {
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - start;
-    std::cout << "\n - Initialization of FindBestCondOblique took: " << dur.count() << "s" << std::endl;
-  }
-
-  /* #endregion */
-
-  // std::cout << "Num projections: " << num_projections << "\n";
-  // remove this outside of profiling!!
   if constexpr (HARD_CODE_1000_PROJECTIONS) { num_projections = 1000; }
 
-  /* #region ----------  MAIN LOOP  ------------------ */
-  // 1. Declare accumulators
-  std::chrono::duration<double> total_sample_proj_time{0};
-  std::chrono::duration<double> total_apply_proj_time{0};
-  std::chrono::duration<double> total_eval_proj_time{0};
-  
-  std::chrono::duration<double> all_proj_sort_time{0};
-  std::chrono::duration<double> all_proj_scan_splits_time{0};
+  /* #endregion */
 
   proto::DecisionTreeTrainingConfig new_dt_config = dt_config; // TODO pick better name
   
@@ -268,25 +225,15 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   }
 
 
+  /* #region ----------  MAIN LOOP  ------------------ */
   for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
       int8_t monotonic = 0;
       std::chrono::duration<double> sort_time{0};
       std::chrono::duration<double> scan_splits_time{0};
 
-      // 2a. SampleProjection timing
-      if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>0) { start = std::chrono::high_resolution_clock::now(); }
-
       SampleProjection(config_link.numerical_features(), new_dt_config,
                       train_dataset.data_spec(), config_link, projection_density,
                       &current_projection, &monotonic, random);
-      
-      if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>0) {
-        dur = std::chrono::high_resolution_clock::now() - start;
-        total_sample_proj_time += dur;
-
-        // 2b. ApplyProjection timing
-        start = std::chrono::high_resolution_clock::now();
-      }
 
       if constexpr (PRINT_PROJECTION_MATRICES) {
         // store the current projection sparsely
@@ -297,17 +244,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         }
       }
 
-      RETURN_IF_ERROR(
+      RETURN_IF_ERROR( // ApplyProjection
         projection_evaluator.Evaluate(current_projection, selected_examples, &projection_values)
       );
-
-      if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>0) {
-        dur = std::chrono::high_resolution_clock::now() - start;
-        total_apply_proj_time += dur;
-
-        // 2c. EvaluateProjection timing
-        start = std::chrono::high_resolution_clock::now();
-      }
 
       ASSIGN_OR_RETURN(
           const auto split_result,
@@ -318,14 +257,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                             best_condition, cache,
                             random,// random needed for Histogramming
                             &sort_time, &scan_splits_time // to time without cout
-                          )); 
-
-      if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>0) {
-        dur = std::chrono::high_resolution_clock::now() - start;
-        total_eval_proj_time += dur;
-        all_proj_sort_time += sort_time;
-        all_proj_scan_splits_time += scan_splits_time;
-      }
+                          ));
 
       if (split_result == SplitSearchResult::kBetterSplitFound) {
         best_projection = current_projection;
@@ -334,31 +266,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       }
   }
 
-  
-  if constexpr (CHRONO_MEASUREMENTS_LOG_LEVEL>0) {
-    if (new_dt_config.numerical_split().type() == proto::NumericalSplit::EXACT) {
-  std::cout << "\n=== Timing summary for " << num_projections << " projections ===\n"
-            << "N. Samples:  " << selected_examples.size() << "\n"
-            << "SampleProjection took:  " << total_sample_proj_time.count() << "s\n"
-            << "ApplyProjection took:   " << total_apply_proj_time.count()  << "s\n"
-            << "EvaluateProjection took:  " << total_eval_proj_time.count()  << "s\n"
-            << " - Sorting took:   " << all_proj_sort_time.count()  << "s\n"
-            << " - ScanSplits took:   " << all_proj_scan_splits_time.count()  << "s" << std::endl;
-    }
-    else {
-      std::cout << "\n=== Timing summary for " << num_projections << " projections ===\n"
-                << "N. Samples:  " << selected_examples.size() << "\n"
-                << "SampleProjection took:  " << total_sample_proj_time.count() << "s\n"
-                << "ApplyProjection took:   " << total_apply_proj_time.count()  << "s\n"
-                << "EvaluateProjection took:  " << total_eval_proj_time.count()  << "s\n"
-                << " - Histogramming took:   " << all_proj_sort_time.count()  << "s\n"
-                << " - ScanSplits took:   " << all_proj_scan_splits_time.count()  << "s" << std::endl;
-    }
-  }
-
   /* #endregion */
 
-  /* #region Post-Processing - unimportant for runtime */
+  /* #region update Best Threshold & Projection */
 
   // Save projection matrix to file if desired
   if constexpr (PRINT_PROJECTION_MATRICES) {
@@ -381,10 +291,6 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     RETURN_IF_ERROR(SetCondition(best_projection, best_threshold,
                                  train_dataset.data_spec(), best_condition));
 
-    // e-06 for 512k x 1k
-    // end = std::chrono::high_resolution_clock::now();
-    // dur = end - start;
-    // std::cout << "\nFindBestCondOblique::SetCond() took: " << dur.count() << "s" << std::endl;
     return true;
   }
   

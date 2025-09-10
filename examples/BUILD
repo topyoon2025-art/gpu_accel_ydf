@@ -70,9 +70,9 @@ cc_binary(
 cc_binary(
     name = "train_oblique_forest",
     srcs = ["train_oblique_forest.cc"],
-    copts = ["-pg"], # Ariel - for profiling
-    linkopts = ["-pg"],
-    features = ["c++17"],
+    # copts = ["-pg"], # Ariel - for profiling
+    # linkopts = ["-pg"],
+    # features = ["c++17"],
     deps = [
 "//yggdrasil_decision_forests/learner/random_forest:random_forest",
 "//yggdrasil_decision_forests/learner:learner_library",
