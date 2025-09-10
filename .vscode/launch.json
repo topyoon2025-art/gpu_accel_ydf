@@ -125,6 +125,7 @@
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
       "args": [
         "--input_mode", "csv",
+        "--num_trees", "1"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
