@@ -17,7 +17,7 @@
 #include "yggdrasil_decision_forests/learner/learner_library.h"
 #include "yggdrasil_decision_forests/learner/random_forest/random_forest.pb.h"
 #include "yggdrasil_decision_forests/model/model_library.h"
-#include "yggdrasil_decision_forests/utils/status_macros.h"
+// #include "yggdrasil_decision_forests/utils/status_macros.h"
 #include "yggdrasil_decision_forests/utils/filesystem.h"
 
 #include <random>

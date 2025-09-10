@@ -67,8 +67,16 @@
 #include "yggdrasil_decision_forests/utils/status_macros.h"
 #include "yggdrasil_decision_forests/utils/parallel_chrono.h"
 
+
+#ifndef PRINT_PROJECTION_MATRICES_FLAG
+  #define PRINT_PROJECTION_MATRICES_FLAG 0
+#endif
+
+
 namespace yggdrasil_decision_forests::model::decision_tree
 {
+
+  static constexpr bool PRINT_PROJECTION_MATRICES = PRINT_PROJECTION_MATRICES_FLAG;
 
   namespace
   {
@@ -5044,9 +5052,6 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       }
     #endif
 
-    bool enable_timing = false;
-    auto nodetrain_start = std::chrono::high_resolution_clock::now();
-
     /* #region Exit Conditions */
     if (selected_examples.empty())
       { return absl::InternalError("No examples fed to the node trainer"); }
@@ -5087,12 +5092,6 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     }
     /* #endregion */
 
-
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> dur = end - nodetrain_start;
-    if (enable_timing)
-      { std::cout << "\n NodeTrain Exit cond. eval took: " << dur.count() << "s" << std::endl; }
-
     // If not exit - Train
 
     // In-memory transactional dataset with heterogeneous column type, stored column
@@ -5102,14 +5101,11 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     absl::Span<const UnsignedExampleIdx> selected_examples_for_splitter;
 
     // TODO Ariel: CATBOOST IDEA! This flag shows whether dense or sparse dataset - does it consolidate when sparse enough?
-
     // If true, the entire dataset "local_train_dataset" is composed of training
     // examples for this node. If false, only the subset of
     // "local_train_dataset" indexed by "selected_examples" are to be considered
     // for this node i.e. local_train_dataset[selected_examples[i]].
     bool splitter_dataset_is_compact;
-
-    auto start = std::chrono::high_resolution_clock::now();
 
     /* #region  deal w/ missing data: Extract the random local imputation. Ariel Don't Care */
     dataset::VerticalDataset random_local_imputation_train_dataset;
@@ -5144,14 +5140,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     { return absl::InternalError("No examples fed to the splitter"); }
     /* #endregion */
 
-
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - start;
-    if (enable_timing)
-     { std::cout << "\n NodeTrain deal w/ Missing Data took: " << dur.count() << "s" << std::endl; }
-
-    start = std::chrono::high_resolution_clock::now();
-
+    if constexpr (PRINT_PROJECTION_MATRICES) {
+      std::cout << "Depth: " << depth << std::endl;
+    }
     // Initialize the search - FindBestCondition is wrapper
     ASSIGN_OR_RETURN(
         const auto has_better_condition,
@@ -5163,19 +5154,11 @@ return found_split ? SplitSearchResult::kBetterSplitFound
             node->mutable_node()->mutable_condition(), random, cache)
         );
 
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - start;
-    if (enable_timing)
-    { std::cout << "\n Whole of FindBestCondition took: " << dur.count() << "s" << std::endl; }
-
-    start = std::chrono::high_resolution_clock::now();
-
     // ***** POST-PROCESS *****
     // IF better_split: split & recurse    // else: finalize as leaf
     if (!has_better_condition)
     {
       // No good condition found. Close the branch.
-      // Ariel: what exactly does the "finalization" do?
       node->FinalizeAsLeaf(dt_config.store_detailed_label_distribution());
       return absl::OkStatus();
     }
@@ -5188,7 +5171,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
     node->CreateChildren();
 
-    // I guess if it doesn't meet Termination constraint, it's not a leaf
+    // if it doesn't meet Termination constraint, it's not a leaf
     node->FinalizeAsNonLeaf(dt_config.keep_non_leaf_label_distribution(),
                             dt_config.store_detailed_label_distribution());
 
@@ -5280,11 +5263,6 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                       ? std::optional<SelectedExamplesRollingBuffer>(
                             node_only_example_split->negative_examples)
                       : std::nullopt));
-
-    end = std::chrono::high_resolution_clock::now();
-    dur = end - nodetrain_start;
-    if (enable_timing)
-     { std::cout << "\n Whole of NodeTrain took: " << dur.count() << "s" << std::endl;          }
 
     return absl::OkStatus();
   }
