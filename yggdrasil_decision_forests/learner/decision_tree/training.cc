@@ -5155,6 +5155,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     // IF better_split: split & recurse    // else: finalize as leaf
     if (!has_better_condition)
     {
+      std::cout << "Leaf Node! Exiting.." << std::endl;
       // No good condition found. Close the branch.
       node->FinalizeAsLeaf(dt_config.store_detailed_label_distribution());
       return absl::OkStatus();
@@ -5215,8 +5216,6 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       return absl::OkStatus();
     }
 
-    node->node().
-
     // Separate the positive and negative examples used only to determine the node value.
     // Ariel: IDK how this is different from example_split. What's the node value?
     std::optional<ExampleSplitRollingBuffer> node_only_example_split;
@@ -5267,6 +5266,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     /**************** RECURSE LEFT & RIGHT ****************/
 
     // +
+    if constexpr (PRINT_PROJECTION_MATRICES) {
+      std::cout << "\nStarting work on Positive child" << std::endl;
+    }
     RETURN_IF_ERROR(
         NodeTrain(train_dataset, config, config_link, dt_config, deployment,
                   splitter_concurrency_setup, weights, depth + 1, internal_config,
@@ -5278,6 +5280,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                       : std::nullopt));
 
     // -
+    if constexpr (PRINT_PROJECTION_MATRICES) {
+      std::cout << "Starting work on Negative child" << std::endl;
+    }
     RETURN_IF_ERROR(
         NodeTrain(train_dataset, config, config_link, dt_config, deployment,
                   splitter_concurrency_setup, weights, depth + 1, internal_config,
