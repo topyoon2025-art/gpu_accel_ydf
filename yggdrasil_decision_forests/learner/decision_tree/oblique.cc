@@ -286,14 +286,6 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     RETURN_IF_ERROR(SetCondition(best_projection, best_threshold,
                                  train_dataset.data_spec(), best_condition));
 
-    if constexpr (PRINT_PROJECTION_MATRICES) {
-      std::cout << "\n Best split found for this node: " << std::endl;
-      for (const auto& item : best_projection) {
-        std::cout << "best_projection[" << item.attribute_idx << "] = " << item.weight << std::endl;
-      }
-      std::cout << "Threshold: " << best_threshold << "\n" << std::endl;
-    }
-
     return true;
   }
   
