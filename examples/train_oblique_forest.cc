@@ -143,45 +143,46 @@ dataset::VerticalDataset MakeUniformDataset(
 }
 
 // -------------------------------------------------------------------- trunk
-dataset::VerticalDataset MakeTrunkDataset(
-        const dataset::proto::DataSpecification& spec,
-        int64_t rows, int cols, uint32_t seed) {
-
+dataset::VerticalDataset MakeTrunkDataset(const dataset::proto::DataSpecification& spec,
+                                          int64_t rows, int cols, uint32_t seed) {
   dataset::VerticalDataset ds;
   ds.set_data_spec(spec);
   CHECK_OK(ds.CreateColumnsFromDataspec());
   ds.Resize(rows);
 
   constexpr int kNInformative = 256;
-  constexpr float kMu0 = -1.f, kMu1 = 1.f;
   const int ninform = std::min(kNInformative, cols);
 
-  std::vector<float> mu0(ninform), mu1(ninform);
+  // Pre–compute the two means for the informative coordinates.
+  std::vector<float> mu0(cols, 0.f), mu1(cols, 0.f);
   for (int j = 0; j < ninform; ++j) {
     const float f = 1.f / std::sqrt(float(j + 1));
-    mu0[j] = kMu0 * f;
-    mu1[j] = kMu1 * f;
+    mu0[j] = -f;
+    mu1[j] =  f;
   }
 
+  // Fill the feature columns -------------------------------------------------
 #pragma omp parallel for schedule(static)
-  for (int64_t i = 0; i < rows; ++i) {
-    std::seed_seq seq{seed + static_cast<uint32_t>(i)};
+  for (int j = 0; j < cols; ++j) {
+    std::seed_seq seq{seed + static_cast<uint32_t>(j)};
     absl::BitGen gen(seq);
-    const bool cls1 = (i >= rows / 2);
 
-    for (int j = 0; j < cols; ++j) {
-      float mean = 0.f;
-      if (j < ninform) mean = cls1 ? mu1[j] : mu0[j];
-      const float v = mean + absl::Gaussian<float>(gen);
-      auto* col = ds.MutableColumnWithCast<
-          dataset::VerticalDataset::NumericalColumn>(j);
-      (*col->mutable_values())[i] = v;
+    auto* col = ds.MutableColumnWithCast<
+        dataset::VerticalDataset::NumericalColumn>(j)->mutable_values();
+
+    for (int64_t i = 0; i < rows; ++i) {
+      const bool cls1 = (i >= rows / 2);                // second half ⇒ class 2
+      const float mean = cls1 ? mu1[j] : mu0[j];
+      (*col)[i] = mean + absl::Gaussian<float>(gen);
     }
-
-    auto* ycol = ds.MutableColumnWithCast<
-        dataset::VerticalDataset::CategoricalColumn>(cols);
-    (*ycol->mutable_values())[i] = cls1 ? 2 : 1;   // 1-based to comply with YDF
   }
+
+  // Fill the label column ----------------------------------------------------
+  auto* y = ds.MutableColumnWithCast<
+      dataset::VerticalDataset::CategoricalColumn>(cols)->mutable_values();
+#pragma omp parallel for schedule(static)
+  for (int64_t i = 0; i < rows; ++i)
+    (*y)[i] = (i >= rows / 2) ? 2 : 1;                  // 1-based labels
 
   return ds;
 }
