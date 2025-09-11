@@ -206,6 +206,7 @@ if __name__ == "__main__":
             print(f"binary died with signal {-proc.returncode}")
 
         dt = time.perf_counter() - t0
+        print(f"⏱  Binary subprocess ran for {dt:.4f} s")
         log_plain = re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', log)
         table = parse_parallel_chrono(log_plain)
 
