@@ -139,17 +139,6 @@ if __name__ == "__main__":
 
     exp = f"{a.feature_split_type} | {a.numerical_split_type} | {a.num_threads}t | {a.experiment_name}"
     
-    # Use CSV filename (without extension) if using CSV input, otherwise use matrix dimensions
-    if a.input_mode == "csv":
-        csv_filename = Path(a.train_csv).stem  # Gets filename without extension
-        dataset_name = csv_filename
-    else:
-        dataset_name = f"{a.rows}_x_{a.cols}"
-    
-    out_dir = Path("benchmarks/results/per_function_timing") / utils.get_cpu_model_proc() / exp / dataset_name
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    # command ----------------------------------------------------------
     cmd = ["./bazel-bin/examples/train_oblique_forest",
            f"--num_trees={a.num_trees}",
            f"--tree_depth={a.tree_depth}",
@@ -162,34 +151,23 @@ if __name__ == "__main__":
     cmd.append("--numerical_split_type=Exact"
                if a.numerical_split_type == "Dynamic Histogramming"
                else f"--numerical_split_type={a.numerical_split_type}")
+ 
 
-    if a.input_mode == "uniform_synthetic": 
-        cmd += ["--input_mode=synthetic", f"--rows={a.rows}", f"--cols={a.cols}"]
-    elif a.input_mode == "trunk_synthetic":
-        trunk_dir = Path("benchmarks") / "data" / "trunk_data"
-        trunk_dir.mkdir(parents=True, exist_ok=True)
-        csv_path = trunk_dir / f"{a.rows}x{a.cols}.csv"
+    # Use CSV filename (without extension) if using CSV input, otherwise use matrix dimensions
+    if a.input_mode == "csv":
+        csv_filename = Path(a.train_csv).stem  # Gets filename without extension
+        dataset_name = csv_filename
 
-        # ------------------------------------------------------------------
-        # 3. Create the file if it does not already exist
-        # ------------------------------------------------------------------
-        if not csv_path.exists():
-            log.info("Synthetic trunk file %s is missing – generating it now.", csv_path)
-            subprocess.run(
-                [
-                    sys.executable,
-                    "benchmarks/src/utils/make_trunk_dataset.py",
-                    f"--rows={a.rows}",
-                    f"--cols={a.cols}"
-                ],
-                check=True,
-            )
-        else:
-            log.info("Reusing existing synthetic trunk file: %s", csv_path)
-    
-    cmd += ["--input_mode=csv",
-            f"--train_csv={a.train_csv}",
-            f"--label_col={a.label_col}"]
+        cmd += ["--input_mode=csv",
+        f"--train_csv={a.train_csv}",
+        f"--label_col={a.label_col}"]
+    elif a.input_mode == "uniform_synthetic" or a.input_mode == "trunk_synthetic":
+        dataset_name = f"{a.rows}_x_{a.cols}"
+        cmd += [f"--input_mode={a.input_mode}", f"--rows={a.rows}", f"--cols={a.cols}"]
+
+    out_dir = Path("benchmarks/results/per_function_timing") / utils.get_cpu_model_proc() / exp / dataset_name
+    out_dir.mkdir(parents=True, exist_ok=True)   
+
 
     try:
         utils.configure_cpu_for_benchmarks(True)
