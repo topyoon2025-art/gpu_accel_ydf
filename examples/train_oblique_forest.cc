@@ -28,7 +28,7 @@
 /* #region ABSL Flags */
 // Input mode flag: "csv", "synthetic", or "tfrecord"
 ABSL_FLAG(std::string, input_mode, "",
-          "Data input mode: csv, synthetic, or tfrecord.");
+          "Data input mode: csv, Uniform synthetic, Trunk Synthetic, or tfrecord.");
 // CSV mode flags
 ABSL_FLAG(std::string, train_csv, "/home/ariel/prog/yggdrasil-oblique-forests/benchmarks/data/processed_wise1_data.csv",
           "Path to training CSV file (for csv mode). Must include --label_col.");
@@ -85,6 +85,15 @@ using namespace yggdrasil_decision_forests;
 
 /* #region Synthetic Dataset Generation */
 
+enum class SynthType { kUniform, kTrunk };
+
+inline SynthType ParseSynthType(const std::string& s) {
+  if (s == "uniform") return SynthType::kUniform;
+  if (s == "trunk")   return SynthType::kTrunk;
+  LOG(FATAL) << "Unknown synthetic type: " << s;
+  return SynthType::kUniform;  // never reached; avoid warning
+}
+
 // Build a DataSpecification for synthetic data
 dataset::proto::DataSpecification MakeSyntheticSpec(
     int cols, int64_t rows, int label_mod, const std::string &label_col) {
@@ -97,52 +106,94 @@ dataset::proto::DataSpecification MakeSyntheticSpec(
   auto* lbl = spec.add_columns();
   lbl->set_name(label_col);
   lbl->set_type(dataset::proto::CATEGORICAL);
-  lbl->mutable_categorical()->set_number_of_unique_values(label_mod + 1);
+  lbl->mutable_categorical()->set_number_of_unique_values(3); // OOD, 1, 2
   lbl->mutable_categorical()->set_is_already_integerized(true);
   spec.set_created_num_rows(rows);
   return spec;
 }
 
-dataset::VerticalDataset MakeSyntheticDataset(
-    const dataset::proto::DataSpecification& spec,
-    int64_t rows, int cols, int label_mod,
-    uint32_t seed) {
+// ------------------------------------------------------------------ uniform
+dataset::VerticalDataset MakeUniformDataset(
+        const dataset::proto::DataSpecification& spec,
+        int64_t rows, int cols, uint32_t seed) {
 
-  int num_threads = 8;
   dataset::VerticalDataset ds;
   ds.set_data_spec(spec);
   CHECK_OK(ds.CreateColumnsFromDataspec());
   ds.Resize(rows);
 
-  // -------------  NUMERICAL FEATURES  -------------
-  // One column is completely independent of another → easy to parallelise.
-
-  // RNG too fast now, this doesn't matter. ~1s for 50k x 2k, algo takes >1min on even AWS 96-thread
-  // Haven't managed to get this to work. It compiles, but still runs single-threaded
-  // #pragma omp parallel for schedule(static) num_threads(num_threads)
+#pragma omp parallel for schedule(static)
   for (int c = 0; c < cols; ++c) {
-    // ---- icx-friendly seeding --------------------------------------------
-    std::uint32_t s = seed + static_cast<std::uint32_t>(c);
-    std::seed_seq seq{ s };           // SeedSequence with one 32-bit word
-    absl::BitGen gen(seq);            // OK for every compiler
-    // -----------------------------------------------------------------------
+    std::seed_seq seq{seed + static_cast<uint32_t>(c)};
+    absl::BitGen gen(seq);
 
-    auto* v = ds.MutableColumnWithCast<
-        dataset::VerticalDataset::NumericalColumn>(c)->mutable_values();
-    for (auto& x : *v) x = absl::Gaussian<float>(gen);
+    auto* col =
+        ds.MutableColumnWithCast<
+            dataset::VerticalDataset::NumericalColumn>(c)->mutable_values();
+    for (auto& v : *col) v = absl::Gaussian<float>(gen);
   }
 
-  // -------------  CATEGORICAL LABELS  -------------
+  // labels: round-robin 0,1,…
   auto* ycol = ds.MutableColumnWithCast<
       dataset::VerticalDataset::CategoricalColumn>(cols);
   auto* yval = ycol->mutable_values();
+  for (int64_t i = 0; i < rows; ++i) (*yval)[i] = static_cast<int>((i & 1) + 1);    // 1 or 2, not 0/1
 
-  // #pragma omp parallel for schedule(static) num_threads(num_threads)
+  return ds;
+}
+
+// -------------------------------------------------------------------- trunk
+dataset::VerticalDataset MakeTrunkDataset(
+        const dataset::proto::DataSpecification& spec,
+        int64_t rows, int cols, uint32_t seed) {
+
+  dataset::VerticalDataset ds;
+  ds.set_data_spec(spec);
+  CHECK_OK(ds.CreateColumnsFromDataspec());
+  ds.Resize(rows);
+
+  constexpr int kNInformative = 256;
+  constexpr float kMu0 = -1.f, kMu1 = 1.f;
+  const int ninform = std::min(kNInformative, cols);
+
+  std::vector<float> mu0(ninform), mu1(ninform);
+  for (int j = 0; j < ninform; ++j) {
+    const float f = 1.f / std::sqrt(float(j + 1));
+    mu0[j] = kMu0 * f;
+    mu1[j] = kMu1 * f;
+  }
+
+#pragma omp parallel for schedule(static)
   for (int64_t i = 0; i < rows; ++i) {
-    (*yval)[i] = static_cast<int>((i % label_mod) + 1);   // 1-based
+    std::seed_seq seq{seed + static_cast<uint32_t>(i)};
+    absl::BitGen gen(seq);
+    const bool cls1 = (i >= rows / 2);
+
+    for (int j = 0; j < cols; ++j) {
+      float mean = 0.f;
+      if (j < ninform) mean = cls1 ? mu1[j] : mu0[j];
+      const float v = mean + absl::Gaussian<float>(gen);
+      auto* col = ds.MutableColumnWithCast<
+          dataset::VerticalDataset::NumericalColumn>(j);
+      (*col->mutable_values())[i] = v;
+    }
+
+    auto* ycol = ds.MutableColumnWithCast<
+        dataset::VerticalDataset::CategoricalColumn>(cols);
+    (*ycol->mutable_values())[i] = cls1 ? 2 : 1;   // 1-based to comply with YDF
   }
 
   return ds;
+}
+
+dataset::VerticalDataset BuildSyntheticDataset(
+        const std::string& mode,
+        const dataset::proto::DataSpecification& spec,
+        int64_t rows, int cols, uint32_t seed) {
+  if (mode == "uniform") return MakeUniformDataset(spec, rows, cols, seed);
+  if (mode == "trunk")   return MakeTrunkDataset(spec, rows, cols, seed);
+  LOG(FATAL) << "Unknown synthetic mode: " << mode;
+  return {};  // never reached
 }
 
 /* #endregion */
@@ -190,29 +241,29 @@ int main(int argc, char** argv) {
         /*require_same_dataset_fields=*/false,
         guide,
         &data_spec);
-  } else if (mode == "synthetic") {
-    std::cout << "\nGenerating synthetic dataset: rows="
+  }
+  /* … csv branch unchanged … */
+  else if (mode == "uniform" || mode == "trunk") {
+    std::cout << "\nGenerating " << mode << " synthetic dataset: rows="
               << absl::GetFlag(FLAGS_rows)
-              << ", cols=" << absl::GetFlag(FLAGS_cols)
-              << "\n" << std::endl;
-    
-    label_col = "y"; // I create the synthetic dataset w/ this label col name
+              << ", cols=" << absl::GetFlag(FLAGS_cols) << "\n";
 
-    data_spec = MakeSyntheticSpec(
-        absl::GetFlag(FLAGS_cols),
-        absl::GetFlag(FLAGS_rows),
-        absl::GetFlag(FLAGS_label_mod),
-        label_col); // label_col
-    auto ds = MakeSyntheticDataset(
-        data_spec,
-        absl::GetFlag(FLAGS_rows),
-        absl::GetFlag(FLAGS_cols),
-        absl::GetFlag(FLAGS_label_mod),
-        absl::GetFlag(FLAGS_seed));
-    // Ownership
+    label_col = "y";
+    data_spec = MakeSyntheticSpec(absl::GetFlag(FLAGS_cols),
+                                  absl::GetFlag(FLAGS_rows),
+                                  2, label_col);
+
+    auto ds = BuildSyntheticDataset(
+                mode,
+                data_spec,
+                absl::GetFlag(FLAGS_rows),
+                absl::GetFlag(FLAGS_cols),
+                absl::GetFlag(FLAGS_seed));
+
     tf_ds = std::make_unique<dataset::VerticalDataset>(std::move(ds));
     ds_ptr = tf_ds.get();
-  } else if (mode == "tfrecord") {
+  }
+  else if (mode == "tfrecord") {
     std::cout << "\n\nReading TFRECORD\n\n";
     
     const std::string path = absl::GetFlag(FLAGS_ds_path);
@@ -229,9 +280,10 @@ int main(int argc, char** argv) {
                                           tf_ds.get()));
     ds_ptr = tf_ds.get();
   } else {
-    std::cerr << "Unknown input_mode: " << mode << ". Use csv, synthetic, or tfrecord.\n";
-    return 1;
-  }
+  std::cerr << "Unknown input_mode: " << mode
+            << ". Use csv, uniform, trunk, or tfrecord.\n";
+  return 1;
+}
 
   // 2) Configure learner
   model::proto::TrainingConfig train_config;
