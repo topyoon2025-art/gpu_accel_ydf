@@ -5155,7 +5155,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     // IF better_split: split & recurse    // else: finalize as leaf
     if (!has_better_condition)
     {
-      std::cout << "Leaf Node! Exiting.." << std::endl;
+      if constexpr (PRINT_PROJECTION_MATRICES) { std::cout << "Leaf Node! Exiting.." << std::endl; }
       // No good condition found. Close the branch.
       node->FinalizeAsLeaf(dt_config.store_detailed_label_distribution());
       return absl::OkStatus();
