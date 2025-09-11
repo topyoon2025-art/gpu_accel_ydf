@@ -162,7 +162,7 @@ if __name__ == "__main__":
         f"--train_csv={a.train_csv}",
         f"--label_col={a.label_col}"]
     elif a.input_mode == "uniform" or a.input_mode == "trunk":
-        dataset_name = f"{a.rows}_x_{a.cols}"
+        dataset_name = f"{a.input_mode}_{a.rows}_x_{a.cols}"
         cmd += [f"--input_mode={a.input_mode}", f"--rows={a.rows}", f"--cols={a.cols}"]
 
     out_dir = Path("benchmarks/results/per_function_timing") / utils.get_cpu_model_proc() / exp / dataset_name
