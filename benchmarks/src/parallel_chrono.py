@@ -161,7 +161,7 @@ if __name__ == "__main__":
         cmd += ["--input_mode=csv",
         f"--train_csv={a.train_csv}",
         f"--label_col={a.label_col}"]
-    elif a.input_mode == "uniform_synthetic" or a.input_mode == "trunk_synthetic":
+    elif a.input_mode == "uniform" or a.input_mode == "trunk":
         dataset_name = f"{a.rows}_x_{a.cols}"
         cmd += [f"--input_mode={a.input_mode}", f"--rows={a.rows}", f"--cols={a.cols}"]
 
