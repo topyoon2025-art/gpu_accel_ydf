@@ -146,7 +146,7 @@ if __name__ == "__main__":
            f"--projection_density_factor={a.projection_density_factor}",
            f"--max_num_projections={a.max_num_projections}",
            f"--feature_split_type={a.feature_split_type}",
-           f"--compute_oob_performances=true"]
+           f"--compute_oob_performances=false"]
 
     cmd.append("--numerical_split_type=Exact"
                if a.numerical_split_type == "Dynamic Histogramming"
