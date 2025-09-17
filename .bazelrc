@@ -30,6 +30,7 @@ build:intel_profiler --cxxopt=-gno-split-dwarf
 ###### SPECIFIC FLAGS ######
 # Prints out timings for each function. Parse with per_function_chrono.py
 build:multithreaded_chrono_profile --cxxopt="-DCHRONO_ENABLED"
+build:allow_empty_projections --cxxopt="-DALLOW_EMPTY_PROJECTIONS_FLAG=true"
 build:fixed_1000_projections --cxxopt="-DHARD_CODE_1000_PROJECTIONS_FLAG=true"
 build:enable_dynamic_histogramming --cxxopt="-DENABLE_DYNAMIC_HISTOGRAMMING_FLAG=true"
 build:print_projection_matrices --cxxopt="-DPRINT_PROJECTION_MATRICES_FLAG=1"

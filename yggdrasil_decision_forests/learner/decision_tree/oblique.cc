@@ -55,12 +55,17 @@
   #define PRINT_PROJECTION_MATRICES_FLAG 0
 #endif
 
+#ifndef ALLOW_EMPTY_PROJECTIONS_FLAG
+  #define ALLOW_EMPTY_PROJECTIONS_FLAG 0
+#endif
+
 
 namespace yggdrasil_decision_forests {
 namespace model {
 namespace decision_tree {
 
 static constexpr bool PRINT_PROJECTION_MATRICES = PRINT_PROJECTION_MATRICES_FLAG;
+static constexpr bool ALLOW_EMPTY_PROJECTIONS = ALLOW_EMPTY_PROJECTIONS_FLAG;
 
 namespace {
 using std::is_same;
@@ -942,6 +947,8 @@ void SampleProjection(const absl::Span<const int>& features,
     projection->push_back({features[idx], gen_weight(features[idx])});
   }
 
+  // Treeple allows empty projections, which are useless. This is for consistency checks
+  if constexpr (! ALLOW_EMPTY_PROJECTIONS) {
   if (projection->empty()) {
     std::uniform_int_distribution<int> unif_feature_idx(0, features.size() - 1);
     projection->push_back(
@@ -950,6 +957,7 @@ void SampleProjection(const absl::Span<const int>& features,
   } else if (projection->size() == 1) {
     projection->front().weight = 1.f;
   }
+}
 
   int max_num_features = dt_config.sparse_oblique_split().max_num_features();
   int cur_num_projections = projection->size();
