@@ -1,11 +1,21 @@
 load("@bazel_tools//tools/cpp:cc_toolchain_config_lib.bzl",
-     "tool_path", "feature", "flag_group", "flag_set")
+"tool_path", "feature", "flag_group", "flag_set")
 load("@bazel_tools//tools/build_defs/cc:action_names.bzl", "ACTION_NAMES")
 
 all_link_actions = [
-    ACTION_NAMES.cpp_link_executable,
-    ACTION_NAMES.cpp_link_dynamic_library,
-    ACTION_NAMES.cpp_link_nodeps_dynamic_library,
+ACTION_NAMES.cpp_link_executable,
+ACTION_NAMES.cpp_link_dynamic_library,
+ACTION_NAMES.cpp_link_nodeps_dynamic_library,
+]
+
+all_compile_actions = [
+    ACTION_NAMES.c_compile,
+    ACTION_NAMES.cpp_compile,
+    ACTION_NAMES.linkstamp_compile,
+    ACTION_NAMES.assemble,
+    ACTION_NAMES.preprocess_assemble,
+    ACTION_NAMES.cpp_module_compile,
+    ACTION_NAMES.cpp_module_codegen,
 ]
 
 def _impl(ctx):
@@ -19,17 +29,45 @@ def _impl(ctx):
         tool_path(name = "objdump", path = "/usr/bin/objdump"),
         tool_path(name = "strip", path = "/usr/bin/strip"),
     ]
-
-    features = [
+    
+    features = [    # This will always apply (you marked this one enabled=True).
         feature(
             name = "default_linker_flags",
             enabled = True,
             flag_sets = [
                 flag_set(
                     actions = all_link_actions,
-                    flag_groups = [
-                        flag_group(flags = ["-lstdc++"])
-                    ]
+                    flag_groups = [flag_group(flags = ["-lstdc++"])],
+                ),
+            ],
+        ),
+        # Enabled automatically when you pass -c opt
+        feature(
+            name = "opt",
+            flag_sets = [
+                flag_set(
+                    actions = all_compile_actions,
+                    flag_groups = [flag_group(flags = ["-O2", "-DNDEBUG"])],
+                ),
+            ],
+        ),
+        # Enabled automatically when you pass -c dbg
+        feature(
+            name = "dbg",
+            flag_sets = [
+                flag_set(
+                    actions = all_compile_actions,
+                    flag_groups = [flag_group(flags = ["-g", "-O0"])],
+                ),
+            ],
+        ),
+        # Enabled automatically when you pass -c fastbuild
+        feature(
+            name = "fastbuild",
+            flag_sets = [
+                flag_set(
+                    actions = all_compile_actions,
+                    flag_groups = [flag_group(flags = ["-O2"])],
                 ),
             ],
         ),
