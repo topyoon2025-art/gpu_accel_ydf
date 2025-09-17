@@ -59,6 +59,10 @@
   #define ALLOW_EMPTY_PROJECTIONS_FLAG 0
 #endif
 
+#ifndef SLOW_SAMPLE_PROJECTIONS_FLAG
+  #define SLOW_SAMPLE_PROJECTIONS_FLAG 0
+#endif
+
 
 namespace yggdrasil_decision_forests {
 namespace model {
@@ -66,6 +70,7 @@ namespace decision_tree {
 
 static constexpr bool PRINT_PROJECTION_MATRICES = PRINT_PROJECTION_MATRICES_FLAG;
 static constexpr bool ALLOW_EMPTY_PROJECTIONS = ALLOW_EMPTY_PROJECTIONS_FLAG;
+static constexpr bool SLOW_SAMPLE_PROJECTIONS = SLOW_SAMPLE_PROJECTIONS_FLAG;
 
 namespace {
 using std::is_same;
@@ -860,6 +865,9 @@ void SampleProjection(const absl::Span<const int>& features,
     ::yggdrasil_decision_forests::chrono_prof::kSampleProjection);
   *monotonic_direction = 0;
   projection->clear();
+  if constexpr (SLOW_SAMPLE_PROJECTIONS) {
+    projection->reserve(projection_density * features.size());
+  }
   std::uniform_real_distribution<float> unif01;
   std::uniform_real_distribution<float> unif1m1(-1.f, 1.f);
   const auto& oblique_config = dt_config.sparse_oblique_split();
@@ -926,25 +934,34 @@ void SampleProjection(const absl::Span<const int>& features,
   }
 #endif
 
-  std::binomial_distribution<size_t> binom(features.size(), projection_density);
-
-  // Expectation[Binomial(p,projection_density)] = num_selected_features
-  const size_t num_selected_features = binom(*random);
-
-  // TODO: Try std::bitmap
-  absl::btree_set<size_t> picked_idx;
-
-  // Floyd's sampler to select k indices uniformly
-  for (size_t j = features.size() - num_selected_features; j < features.size();
-       ++j) {
-    size_t t = absl::Uniform<size_t>(*random, 0, j + 1);
-    if (!picked_idx.insert(t).second) picked_idx.insert(j);
+  if constexpr (SLOW_SAMPLE_PROJECTIONS) {
+    for (const auto feature : features) {
+      if (unif01(*random) < projection_density) {
+        projection->push_back({feature, gen_weight(feature)});
+      }
+    }
   }
+  else {
+    std::binomial_distribution<size_t> binom(features.size(), projection_density);
 
-  projection->reserve(projection_density * features.size());
-  // O(k) minimal pass to fill in those indices
-  for (const auto idx : picked_idx) {
-    projection->push_back({features[idx], gen_weight(features[idx])});
+    // Expectation[Binomial(p,projection_density)] = num_selected_features
+    const size_t num_selected_features = binom(*random);
+
+    // TODO: Try std::bitmap
+    absl::btree_set<size_t> picked_idx;
+
+    // Floyd's sampler to select k indices uniformly
+    for (size_t j = features.size() - num_selected_features; j < features.size();
+        ++j) {
+      size_t t = absl::Uniform<size_t>(*random, 0, j + 1);
+      if (!picked_idx.insert(t).second) picked_idx.insert(j);
+    }
+
+    projection->reserve(projection_density * features.size());
+    // O(k) minimal pass to fill in those indices
+    for (const auto idx : picked_idx) {
+      projection->push_back({features[idx], gen_weight(features[idx])});
+    }
   }
 
   // Treeple allows empty projections, which are useless. This is for consistency checks

@@ -29,6 +29,7 @@ def get_base_parser():
     parser.add_argument("--num_trees", type=int, default=50)  # Note: different defaults in your files
     parser.add_argument("--projection_density_factor", type=int, default=3)
     parser.add_argument("--max_num_projections", type=int, default=1000)
+    parser.add_argument("--sample_projection_mode", choices=["Fast", "Slow"], default="Fast")
     
     return parser
 
@@ -91,6 +92,8 @@ def build_binary(args, chrono_mode):
 
     if args.numerical_split_type == "Dynamic Histogramming":
         finished_cmd.append('--config=enable_dynamic_histogramming')
+    if args.sample_projection_mode == "Slow":
+        finished_cmd.append('--config=slow_sample_projections')
     
     if chrono_mode:
         finished_cmd.append('--config=multithreaded_chrono_profile')
