@@ -180,6 +180,23 @@ if __name__ == "__main__":
                 check=False)
         log = proc.stdout
 
+        if a.save_log:
+            # ------------------------------------------------------------------
+            #  Save the raw log (without ANSI colour codes) next to the CSV file
+            # ------------------------------------------------------------------
+            ansi_rx = re.compile(r'\x1B\[[0-?]*[ -/]*[@-~]')
+            log_plain = ansi_rx.sub("", log)
+
+            # Timestamped file name to avoid accidental overwrites
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            log_fp = out_dir / f"{a.feature_split_type}-{a.numerical_split_type}-{a.num_threads}t-{ts}.log"
+
+            try:
+                log_fp.write_text(log_plain, encoding="utf-8")
+                print("Raw log saved to", log_fp)
+            except Exception as err:
+                print(f"⚠️  Could not write log file: {err}", file=sys.stderr)
+
         if proc.returncode < 0:
             print(f"binary died with signal {-proc.returncode}")
 
