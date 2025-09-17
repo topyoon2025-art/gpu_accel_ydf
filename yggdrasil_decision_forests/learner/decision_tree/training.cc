@@ -2393,7 +2393,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         LabelBinaryCategoricalOneValueBucket</*weighted=*/false>::Initializer
             initializer(label_distribution);
 
-        // Irrelevant
+        // Irrelevant - can't presort Random Projections
         if (sorting_strategy == proto::DecisionTreeTrainingConfig::Internal::FORCE_PRESORTED)
         {
           const auto &sorted_attributes = internal_config.preprocessing->presorted_numerical_features()[attribute_idx];

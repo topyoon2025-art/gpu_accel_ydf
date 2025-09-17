@@ -832,6 +832,7 @@ SplitSearchResult ScanSplits(
 
     /* #endregion */
 
+    // Get chosen splitting function
     const auto score = Score<>(initializer, weighted_num_examples, pos, neg);
     tried_one_split = true;
 
