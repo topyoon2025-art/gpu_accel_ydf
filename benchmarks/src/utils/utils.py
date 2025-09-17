@@ -24,11 +24,11 @@ def get_base_parser():
                        choices=["Axis Aligned", "Oblique"])
     parser.add_argument("--numerical_split_type", default="Exact",
                        choices=["Exact", "Random", "Equal Width", "Dynamic Histogramming"])
-    parser.add_argument("--tree_depth", type=int, default=-1)
-    parser.add_argument("--num_threads", type=int, default=1)
-    parser.add_argument("--num_trees", type=int, default=50)  # Note: different defaults in your files
-    parser.add_argument("--projection_density_factor", type=int, default=3)
-    parser.add_argument("--max_num_projections", type=int, default=1000)
+    parser.add_argument("--tree_depth", type=int)
+    parser.add_argument("--num_threads", type=int, required=True)
+    parser.add_argument("--num_trees", type=int)  # Note: different defaults in your files
+    parser.add_argument("--projection_density_factor", type=int)
+    parser.add_argument("--max_num_projections", type=int)
     parser.add_argument("--sample_projection_mode", choices=["Fast", "Slow"], default="Fast")
     
     return parser

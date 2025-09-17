@@ -141,12 +141,16 @@ if __name__ == "__main__":
     
     cmd = ["./bazel-bin/examples/train_oblique_forest",
            f"--num_trees={a.num_trees}",
-           f"--tree_depth={a.tree_depth}",
-           f"--num_threads={a.num_threads}",
-           f"--projection_density_factor={a.projection_density_factor}",
            f"--max_num_projections={a.max_num_projections}",
            f"--feature_split_type={a.feature_split_type}",
            f"--compute_oob_performances=false"]
+    
+    if a.projection_density_factor is not None:
+        cmd.append(f"--projection_density_factor={a.projection_density_factor}")
+    if a.num_threads is not None:
+        cmd.append(f"--num_threads={a.num_threads}")
+    if a.tree_depth is not None:
+        cmd.append(f"--tree_depth={a.tree_depth}")
 
     cmd.append("--numerical_split_type=Exact"
                if a.numerical_split_type == "Dynamic Histogramming"
@@ -168,6 +172,8 @@ if __name__ == "__main__":
     out_dir = Path("benchmarks/results/per_function_timing") / utils.get_cpu_model_proc() / exp / dataset_name
     out_dir.mkdir(parents=True, exist_ok=True)   
 
+    print("\nRunning binary with command: \n", cmd)
+    print("\n\n")
 
     try:
         utils.configure_cpu_for_benchmarks(True)
