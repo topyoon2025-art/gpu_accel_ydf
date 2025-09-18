@@ -243,11 +243,6 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       SampleProjection(config_link.numerical_features(), new_dt_config,
                       train_dataset.data_spec(), config_link, projection_density,
                       &current_projection, &monotonic, random);
-      
-      if constexpr (ALLOW_EMPTY_PROJECTIONS) {
-        // Skip empty projections, like Treeple
-        if (current_projection.empty()) continue;
-      }
 
       if constexpr (PRINT_PROJECTION_MATRICES) {
         // store the current projection sparsely
@@ -256,6 +251,11 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         for (const auto& feat : current_projection) {
           buf.emplace_back(feat.attribute_idx, feat.weight);
         }
+      }
+
+      if constexpr (ALLOW_EMPTY_PROJECTIONS) {
+        // Skip empty projections, like Treeple
+        if (current_projection.empty()) continue;
       }
 
       RETURN_IF_ERROR( // ApplyProjection
