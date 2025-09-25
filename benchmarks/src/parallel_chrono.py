@@ -141,10 +141,11 @@ if __name__ == "__main__":
     
     cmd = ["./bazel-bin/examples/train_oblique_forest",
            f"--num_trees={a.num_trees}",
-           f"--max_num_projections={a.max_num_projections}",
            f"--feature_split_type={a.feature_split_type}",
            f"--compute_oob_performances=false"]
     
+    if a.max_num_projections is not None:
+        cmd.append(f"--max_num_projections={a.max_num_projections}")
     if a.projection_density_factor is not None:
         cmd.append(f"--projection_density_factor={a.projection_density_factor}")
     if a.num_threads is not None:

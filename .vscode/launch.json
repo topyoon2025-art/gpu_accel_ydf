@@ -1,12 +1,15 @@
 {
   "configurations": [
     {
-      "name": "Python Debugger: Current File with Arguments",
+      "name": "Python ParallelChrono",
       "type": "debugpy",
       "request": "launch",
       "program": "${file}",
       "console": "integratedTerminal",
-      "args": ["--input_mode", "trunk_synthetic"]
+      "args": [
+        "--input_mode=trunk",
+        "--num_threads=1",
+      ]
     },
     {
       "name": "Synthetic 100k - Debugging Parallel Chrono",
@@ -41,16 +44,15 @@
       ]
     },
     {
-      "name": "Trunk 100k - Debugging Parallel Chrono",
+      "name": "Trunk 10k - Debugging Parallel Chrono",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
       "args": [
-        "--input_mode=csv",
-        "--train_csv=${workspaceFolder}/benchmarks/data/trunk_data/100000x4096.csv",
-        "--label_col=target",
-        "--num_trees",
-        "1"
+        "--input_mode=trunk",
+        "--rows=10000",
+        "--num_trees=10",
+        "--compute_oob_performances=false"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
