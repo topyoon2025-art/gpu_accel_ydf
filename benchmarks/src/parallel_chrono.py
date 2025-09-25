@@ -137,7 +137,7 @@ if __name__ == "__main__":
         print("❌ build failed", file=sys.stderr)
         sys.exit(1)
 
-    exp = f"{a.feature_split_type} | {a.numerical_split_type} | {a.num_threads}t | {a.experiment_name}"
+    exp = f"{a.sample_projection_mode} projections | {a.feature_split_type} | {a.numerical_split_type} | {a.num_threads}t | {a.experiment_name}"
     
     cmd = ["./bazel-bin/examples/train_oblique_forest",
            f"--num_trees={a.num_trees}",
