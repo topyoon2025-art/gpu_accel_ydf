@@ -56,7 +56,7 @@
 #endif
 
 #ifndef ALLOW_EMPTY_PROJECTIONS_FLAG
-  #define ALLOW_EMPTY_PROJECTIONS_FLAG 0
+  #define ALLOW_EMPTY_PROJECTIONS_FLAG 1 // By default, match Treeple, which skips those projections
 #endif
 
 #ifndef SLOW_SAMPLE_PROJECTIONS_FLAG
