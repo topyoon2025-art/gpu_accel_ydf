@@ -23,7 +23,7 @@ def get_base_parser():
     parser.add_argument("--feature_split_type", default="Oblique",
                        choices=["Axis Aligned", "Oblique"])
     parser.add_argument("--numerical_split_type", default="Exact",
-                       choices=["Exact", "Random", "Equal Width", "Dynamic Histogramming"])
+                       choices=["Exact", "Random", "Equal Width", "Dynamic Random Histogramming", "Dynamic Equal Width Histogramming"])
     parser.add_argument("--tree_depth", type=int)
     parser.add_argument("--num_threads", type=int, required=True)
     parser.add_argument("--num_trees", type=int)  # Note: different defaults in your files
@@ -90,8 +90,10 @@ def build_binary(args, chrono_mode):
     base_cmd = ['bazel', 'build', '--ui_event_filters=-warning', '-c', 'opt', '--config=fixed_1000_projections']
     finished_cmd = base_cmd
 
-    if args.numerical_split_type == "Dynamic Histogramming":
-        finished_cmd.append('--config=enable_dynamic_histogramming')
+    if args.numerical_split_type == "Dynamic Random Histogramming":
+        finished_cmd.append('--config=enable_dynamic_random_histogramming')
+    elif args.numerical_split_type == "Dynamic Random Histogramming":
+        finished_cmd.append('--config=enable_equal_width_histogramming')
     if args.sample_projection_mode == "Slow":
         finished_cmd.append('--config=slow_sample_projections')
     
