@@ -92,8 +92,8 @@ def build_binary(args, chrono_mode):
 
     if args.numerical_split_type == "Dynamic Random Histogramming":
         finished_cmd.append('--config=enable_dynamic_random_histogramming')
-    elif args.numerical_split_type == "Dynamic Random Histogramming":
-        finished_cmd.append('--config=enable_equal_width_histogramming')
+    elif args.numerical_split_type == "Dynamic Equal Width Histogramming":
+        finished_cmd.append('--config=enable_dynamic_equal_width_histogramming')
     if args.sample_projection_mode == "Slow":
         finished_cmd.append('--config=slow_sample_projections')
     
