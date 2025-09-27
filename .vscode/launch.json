@@ -4,11 +4,12 @@
       "name": "Python ParallelChrono",
       "type": "debugpy",
       "request": "launch",
-      "program": "${file}",
+      "program": "${workspaceFolder}/benchmarks/src/parallel_chrono.py",
       "console": "integratedTerminal",
       "args": [
         "--input_mode=trunk",
         "--num_threads=1",
+        "--numerical_split_type=Dynamic Equal Width Histogramming"
       ]
     },
     {

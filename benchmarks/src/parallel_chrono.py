@@ -154,7 +154,7 @@ if __name__ == "__main__":
         cmd.append(f"--tree_depth={a.tree_depth}")
 
     cmd.append("--numerical_split_type=Exact"
-               if a.numerical_split_type == "Dynamic Histogramming"
+               if (a.numerical_split_type == "Dynamic Random Histogramming" or a.numerical_split_type == "Dynamic Equal Width Histogramming")
                else f"--numerical_split_type={a.numerical_split_type}")
  
 
