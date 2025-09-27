@@ -215,7 +215,7 @@ if __name__ == "__main__":
         # ------------------------------------------------------------------
         #  >>>  NEW: build file name from arguments instead of wall-time
         # ------------------------------------------------------------------
-        fname  = f"{a.feature_split_type}-{a.numerical_split_type}-{a.num_threads}Threads.csv"
+        fname  = f"{a.tree_depth}Depth-{a.num_threads}Threads.csv"
         out_fp = out_dir / fname
 
         write_csv(table, vars(a), out_fp)
