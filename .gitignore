@@ -1,5 +1,6 @@
 bazel*
 dist
+benchmarks/data/cc18_binary_csv
 # .vscode
 tmp_package
 __pycache__
