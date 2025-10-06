@@ -260,6 +260,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
       float local_min_value = 0;
       float local_max_value = 0;
       bool first = true;
+      // TODO Ariel why aren't they scanning the dense projection instead of sparse selected_examples?
       for (const auto example_idx : selected_examples)
       {
         const float attribute = attributes[example_idx];
@@ -2236,16 +2237,15 @@ if (dt_config.missing_value_policy() ==
     /* #endregion */
 
 // Determine the minimum and maximum values of the attribute
+// TODO How expensive is this? Why not get it for free from ApplyProjection()?
 float min_value, max_value;
 
-    /* #region Basic Validity Checks */
 if (!MinMaxNumericalAttribute(selected_examples, attributes, &min_value,
                               &max_value))
 { return SplitSearchResult::kInvalidAttribute; }
 // There should be at least two different unique values.
 if (min_value == max_value)
 { return SplitSearchResult::kInvalidAttribute; }
-/* #endregion */
 
 struct CandidateSplit
 {
@@ -2259,14 +2259,13 @@ struct CandidateSplit
 };
 
 std::vector<float> bins;
-// Randomly select some threshold values. Takes very little time
+// Randomly select some threshold values
 ASSIGN_OR_RETURN(
     bins,
         internal::GenHistogramBins(dt_config.numerical_split().type(),
                                   dt_config.numerical_split().num_candidates(),
                                   attributes, min_value, max_value, random));
 
-// Takes very little time
 std::vector<CandidateSplit> candidate_splits(bins.size());
 for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
 {
@@ -2276,6 +2275,7 @@ for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
 }
 
 // Compute the split score of each threshold.
+// TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
 for (const auto example_idx : selected_examples)
 {
   const int32_t label = labels[example_idx];
@@ -5455,7 +5455,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         const proto::NumericalSplit::Type type, const int num_splits,
         const absl::Span<const float> attributes, const float min_value,
         const float max_value, utils::RandomEngine *random)
-    {
+    { // TODO is max value gotten for free from ApplyProjection?
       STATUS_CHECK_GE(num_splits, 0);
       std::vector<float> candidate_splits(num_splits);
       switch (type)
