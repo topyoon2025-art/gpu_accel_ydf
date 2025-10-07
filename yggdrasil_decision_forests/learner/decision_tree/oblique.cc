@@ -239,6 +239,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     }
   }
 
+  std::cout << "Num Projections: " << num_projections << std::endl;
 
   /* #region ----------  MAIN LOOP  ------------------ */
   for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
@@ -345,9 +346,7 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
   const float na_replacement = 0;
 #ifndef NDEBUG
 // Ariel - this grows linearly w/ proj_vals, but not executed in production! Only shows up in Intel Profiler - Ignore
-  for (const float v : projection_values) {
-    DCHECK(!std::isnan(v));
-  }
+  for (const float v : projection_values) { DCHECK(!std::isnan(v)); }
 #endif
 
   // Find a good split in the current_projection.
