@@ -2240,18 +2240,12 @@ if (dt_config.missing_value_policy() ==
 // TODO How expensive is this? Why not get it for free from ApplyProjection()?
 float min_value, max_value;
 
-// auto start = std::chrono::high_resolution_clock::now();
-
+// Takes ~7% of runtime. Can be eliminated by retrieving max from ApplyProjection()
 if (!MinMaxNumericalAttribute(selected_examples, attributes, &min_value,
                               &max_value))
 { return SplitSearchResult::kInvalidAttribute; }
 // There should be at least two different unique values.
-if (min_value == max_value)
-{ return SplitSearchResult::kInvalidAttribute; }
-
-// auto end = std::chrono::high_resolution_clock::now();
-// auto duration = std::chrono::duration<double>(end - start);
-// std::cout << "Finding Min & Max took: " << duration.count() << std::endl;
+if (min_value == max_value) { return SplitSearchResult::kInvalidAttribute; }
 
 struct CandidateSplit
 {
@@ -2264,8 +2258,7 @@ struct CandidateSplit
   }
 };
 
-// start = std::chrono::high_resolution_clock::now();
-
+/* #region Generate Histogram Bins. Essentially free */
 std::vector<float> bins;
 // Randomly select some threshold values
 ASSIGN_OR_RETURN(
@@ -2274,13 +2267,6 @@ ASSIGN_OR_RETURN(
                                   dt_config.numerical_split().num_candidates(),
                                   attributes, min_value, max_value, random));
 
-
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Gen Histogram Bins took: " << duration.count() << std::endl;
-
-// start = std::chrono::high_resolution_clock::now();
-
 std::vector<CandidateSplit> candidate_splits(bins.size());
 for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
 {
@@ -2288,85 +2274,55 @@ for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
   candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
   candidate_split.threshold = bins[split_idx];
 }
+/* #endregion */
 
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Setting Split Thresholds took: " << duration.count() << std::endl;
-
-// start = std::chrono::high_resolution_clock::now();
-
-
-// double total_assign_variables_time = 0;
-// double isnan_time = 0;
-// double upper_bound_time = 0;
-// double closing_statements_time = 0;
+std::chrono::high_resolution_clock::time_point start, end;
+std::chrono::duration<double> duration;
+double upper_bound_time = 0;
 
 // Compute the split score of each threshold.
-// TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
+// TODO ariel 93% of fn. runtime spent here, in std::upper_bound()
 for (const auto example_idx : selected_examples)
 {
-  // start = std::chrono::high_resolution_clock::now();
-
+  /* #region Retrieve indices, check is-nan */
   const int32_t label = labels[example_idx];
   const float weight = weights.empty() ? 1.f : weights[example_idx];
   float attribute = attributes[example_idx];
-
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // total_assign_variables_time += duration.count();
-
-  // start = std::chrono::high_resolution_clock::now();
   
   if (std::isnan(attribute)) { attribute = na_replacement; }
+  /* #endregion */
 
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // isnan_time += duration.count();
-
-  // start = std::chrono::high_resolution_clock::now();
+  start = std::chrono::high_resolution_clock::now();
   
-  // Return 1st element of candidate_splits > attribute
+  // Return 1st element of candidate_splits > attribute i.e. which bin this example belongs to
   auto it_split = std::upper_bound(
       candidate_splits.begin(), candidate_splits.end(), attribute,
       // Lambda fn. for how to compare Candidate Splits vs. Attribute
       [](const float a, const CandidateSplit &b)
       { return a < b.threshold; });
 
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // upper_bound_time += duration.count();
+  end = std::chrono::high_resolution_clock::now();
+  duration = std::chrono::duration<double>(end - start);
+  upper_bound_time += duration.count();
 
-  // start = std::chrono::high_resolution_clock::now();
+  /* #region Save Split*/
   
   if (it_split == candidate_splits.begin()) { continue; }
 
   --it_split;
   it_split->num_positive_examples_without_weights++;
   it_split->pos_label_distribution.Add(label, weight);
-
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // closing_statements_time += duration.count();
+  /* #endregion */
 }
 
-// std::cout << "Assigning Variables: " << total_assign_variables_time << std::endl;
-// std::cout << "isNan: " << isnan_time << std::endl;
-// std::cout << "Upper Bound: " << upper_bound_time << std::endl;
-// std::cout << "Closing Statements: " << closing_statements_time << std::endl << std::endl;
+std::cout << "Upper Bound: " << upper_bound_time << std::endl;
 
-// start = std::chrono::high_resolution_clock::now();
+start = std::chrono::high_resolution_clock::now();
+end = std::chrono::high_resolution_clock::now();
+duration = std::chrono::duration<double>(end - start);
+std::cout << "Measuring cost is about: " << duration.count() * selected_examples.size() << std::endl << std::endl << std::endl;
 
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Measuring cost is about: " << duration.count() * selected_examples.size() << std::endl << std::endl << std::endl;
-
-
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Computing it_split ?? took: " << duration.count() << std::endl;
-
-// start = std::chrono::high_resolution_clock::now();
-
+/* #region Post-Processing : basically free */
 for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
 {
   const auto &src = candidate_splits[split_idx + 1];
@@ -2376,15 +2332,9 @@ for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
   dst.pos_label_distribution.Add(src.pos_label_distribution);
 }
 
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "src-dst Candidate Splits took: " << duration.count() << std::endl;
-
 const double initial_entropy = label_distribution.Entropy();
 utils::BinaryToIntegerConfusionMatrixDouble confusion;
 confusion.SetNumClassesIntDim(num_label_classes);
-
-// start = std::chrono::high_resolution_clock::now();
 
 // Select the best threshold.
 bool found_split = false;
@@ -2423,12 +2373,9 @@ for (auto &candidate_split : candidate_splits)
   }
 }
 
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Finalizing Best Split took: " << duration.count() << "\n\n" << std::endl;
-
 return found_split ? SplitSearchResult::kBetterSplitFound
                    : SplitSearchResult::kNoBetterSplitFound;
+/* #endregion */
 }
 
   // Ariel - train oblique rf w/ MIGHT hits this, not Histogram
