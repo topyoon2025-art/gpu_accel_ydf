@@ -173,10 +173,10 @@ main() {
     check_root
     verify_cpu
     
-    # Show initial status
-    echo "=== Before ==="
-    show_status
-    echo
+    # # Show initial status
+    # echo "=== Before ==="
+    # show_status
+    # echo
     
     # Perform requested action
     if [[ "$action" == "disable" ]]; then
@@ -187,7 +187,7 @@ main() {
     
     # Show final status
     echo
-    echo "=== After ==="
+    echo "=== CPU set to ==="
     show_status
 }
 
