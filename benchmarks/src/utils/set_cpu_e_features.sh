@@ -186,9 +186,9 @@ main() {
     fi
     
     # Show final status
-    echo
-    echo "=== CPU set to ==="
-    show_status
+    # echo
+    # echo "=== CPU set to ==="
+    # show_status
 }
 
 # Run main function
