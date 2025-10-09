@@ -72,11 +72,16 @@
   #define PRINT_PROJECTION_MATRICES_FLAG 0
 #endif
 
+#ifndef FAST_EQUAL_WIDTH_BINNING_FLAG
+  #define FAST_EQUAL_WIDTH_BINNING_FLAG 1
+#endif
+
 
 namespace yggdrasil_decision_forests::model::decision_tree
 {
 
   static constexpr bool PRINT_PROJECTION_MATRICES = PRINT_PROJECTION_MATRICES_FLAG;
+  static constexpr bool FAST_EQUAL_WIDTH_BINNING = FAST_EQUAL_WIDTH_BINNING_FLAG;
 
   namespace
   {
@@ -2208,6 +2213,22 @@ namespace yggdrasil_decision_forests::model::decision_tree
     return false;
   }
 
+
+static inline int EqualWidthThresholdIndex(
+const float a, const float min_value, const float max_value, const int num_splits) {
+if (num_splits <= 0) return -1;
+const double range = static_cast<double>(max_value) - static_cast<double>(min_value);
+if (range <= 0.0) return -1;  // Shouldn't happen given earlier check
+const double inv_width = static_cast<double>(num_splits) / range;
+// Compute index of last threshold <= a:
+// i = floor(((a - min) / width) - 0.5) = floor((a - min)*inv_width - 0.5)
+const double x = (static_cast<double>(a) - static_cast<double>(min_value)) * inv_width - 0.5;
+int idx = static_cast<int>(std::floor(x));
+if (idx < 0) return -1;  // attribute < first threshold
+if (idx >= num_splits) idx = num_splits - 1;  // attribute beyond last threshold
+return idx;
+}
+
   // Ariel - this is used for approx. splits
 absl::StatusOr<SplitSearchResult>
 FindSplitLabelClassificationFeatureNumericalHistogram(
@@ -2276,11 +2297,14 @@ for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
   candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
   candidate_split.threshold = bins[split_idx];
 
-  if (split_idx != 0) {
-    std::cout << "Difference w/ previous bin: " << candidate_split.threshold - candidate_splits[split_idx-1].threshold << std::endl;
-  }
+  // if (split_idx != 0) {
+  //   std::cout << "Difference w/ previous bin: " << candidate_split.threshold - candidate_splits[split_idx-1].threshold << std::endl;
+  // }
 }
 
+
+const bool use_equal_width_fast_path =
+(dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) && FAST_EQUAL_WIDTH_BINNING;
 
 // double total_assign_variables_time = 0;
 // double isnan_time = 0;
@@ -2309,11 +2333,21 @@ for (const auto example_idx : selected_examples)
   // start = std::chrono::high_resolution_clock::now();
   
   // Return 1st element of candidate_splits > attribute
+  if (use_equal_width_fast_path) {
+    const int idx = EqualWidthThresholdIndex(
+    attribute, min_value, max_value, static_cast<int>(candidate_splits.size()));
+    
+    // Matches the original behavior when upper_bound(...) == begin()
+    if (idx < 0) { continue; }
+
+    auto& cs = candidate_splits[idx];
+    cs.num_positive_examples_without_weights++;
+    cs.pos_label_distribution.Add(label, weight);
+  } else {
+  // Existing path for random (or other) threshold types
   auto it_split = std::upper_bound(
-      candidate_splits.begin(), candidate_splits.end(), attribute,
-      // Lambda fn. for how to compare Candidate Splits vs. Attribute
-      [](const float a, const CandidateSplit &b)
-      { return a < b.threshold; });
+  candidate_splits.begin(), candidate_splits.end(), attribute,
+  [](const float a, const CandidateSplit& b) { return a < b.threshold; });
 
   // end = std::chrono::high_resolution_clock::now();
   // duration = std::chrono::duration<double>(end - start);
@@ -2329,7 +2363,7 @@ for (const auto example_idx : selected_examples)
   // end = std::chrono::high_resolution_clock::now();
   // duration = std::chrono::duration<double>(end - start);
   // closing_statements_time += duration.count();
-}
+  }}
 
 // std::cout << "Assigning Variables: " << total_assign_variables_time << std::endl;
 // std::cout << "isNan: " << isnan_time << std::endl;
