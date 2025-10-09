@@ -239,7 +239,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     }
   }
 
-  std::cout << "Num Projections: " << num_projections << std::endl;
+  // std::cout << "Num Projections: " << num_projections << std::endl;
 
   /* #region ----------  MAIN LOOP  ------------------ */
   for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
@@ -1244,10 +1244,8 @@ absl::Status ProjectionEvaluator::Evaluate(
   // Optimization experiment: do this as a vector , then mask out the rows out of bag - values = bag_mask(A+B)
   for (size_t selected_idx = 0; selected_idx < selected_examples.size(); selected_idx++) {
     float value = 0;
-    // Ariel wtf is this?? Is this dense
+    // Ariel this is samples
     const auto example_idx = selected_examples[selected_idx];
-
-    // std::cout << "example_idx: " << example_idx;
 
     // Ariel: This is one-per-nonzero in projection vector - optimal
     for (const auto& item : projection) {
