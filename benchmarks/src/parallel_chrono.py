@@ -24,6 +24,7 @@ def get_args():
     p.add_argument("--rows", type=int, default=4096)
     p.add_argument("--cols", type=int, default=4096)
     p.add_argument("--save_log", action="store_true")
+    p.add_argument("--skip_build", help="Skip building target. Use whatever's in .bazel-bin", action="store_true")
     
     # Override defaults if needed
     p.set_defaults(num_trees=5)  # This script uses 5 trees by default
@@ -133,9 +134,10 @@ if __name__ == "__main__":
     utils.setup_signal_handlers()
     a = get_args()
 
-    if not utils.build_binary(a, chrono_mode=True):
-        print("❌ build failed", file=sys.stderr)
-        sys.exit(1)
+    if (not a.skip_build):
+        if not utils.build_binary(a, chrono_mode=True):
+            print("❌ build failed", file=sys.stderr)
+            sys.exit(1)
 
     exp = f"{a.sample_projection_mode} projections | {a.feature_split_type} | {a.numerical_split_type} | {a.experiment_name}"
     
@@ -160,6 +162,9 @@ if __name__ == "__main__":
 
     # Use CSV filename (without extension) if using CSV input, otherwise use matrix dimensions
     if a.input_mode == "csv":
+        if a.rows != 4096 or a.cols != 4096:
+            raise ValueError("Input Mode specified to be CSV, however synthetic --rows or --cols was also specified")
+
         csv_filename = Path(a.train_csv).stem  # Gets filename without extension
         dataset_name = csv_filename
 
