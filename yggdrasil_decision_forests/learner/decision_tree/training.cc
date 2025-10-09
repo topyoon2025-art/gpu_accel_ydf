@@ -2245,12 +2245,8 @@ if (!MinMaxNumericalAttribute(selected_examples, attributes, &min_value,
                               &max_value))
 { return SplitSearchResult::kInvalidAttribute; }
 // There should be at least two different unique values.
-if (min_value == max_value)
-{ return SplitSearchResult::kInvalidAttribute; }
+if (min_value == max_value) { return SplitSearchResult::kInvalidAttribute; }
 
-// auto end = std::chrono::high_resolution_clock::now();
-// auto duration = std::chrono::duration<double>(end - start);
-// std::cout << "Finding Min & Max took: " << duration.count() << std::endl;
 
 struct CandidateSplit
 {
@@ -2264,8 +2260,6 @@ struct CandidateSplit
   }
 };
 
-// start = std::chrono::high_resolution_clock::now();
-
 std::vector<float> bins;
 // Randomly select some threshold values
 ASSIGN_OR_RETURN(
@@ -2275,32 +2269,23 @@ ASSIGN_OR_RETURN(
                                   attributes, min_value, max_value, random));
 
 
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Gen Histogram Bins took: " << duration.count() << std::endl;
-
-// start = std::chrono::high_resolution_clock::now();
-
 std::vector<CandidateSplit> candidate_splits(bins.size());
 for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
 {
   auto &candidate_split = candidate_splits[split_idx];
   candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
   candidate_split.threshold = bins[split_idx];
+
+  if (split_idx != 0) {
+    std::cout << "Difference w/ previous bin: " << candidate_split.threshold - candidate_splits[split_idx-1].threshold << std::endl;
+  }
 }
-
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Setting Split Thresholds took: " << duration.count() << std::endl;
-
-// start = std::chrono::high_resolution_clock::now();
 
 
 // double total_assign_variables_time = 0;
 // double isnan_time = 0;
 // double upper_bound_time = 0;
 // double closing_statements_time = 0;
-
 // Compute the split score of each threshold.
 // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
 for (const auto example_idx : selected_examples)
@@ -2314,7 +2299,6 @@ for (const auto example_idx : selected_examples)
   // end = std::chrono::high_resolution_clock::now();
   // duration = std::chrono::duration<double>(end - start);
   // total_assign_variables_time += duration.count();
-
   // start = std::chrono::high_resolution_clock::now();
   
   if (std::isnan(attribute)) { attribute = na_replacement; }
@@ -2322,7 +2306,6 @@ for (const auto example_idx : selected_examples)
   // end = std::chrono::high_resolution_clock::now();
   // duration = std::chrono::duration<double>(end - start);
   // isnan_time += duration.count();
-
   // start = std::chrono::high_resolution_clock::now();
   
   // Return 1st element of candidate_splits > attribute
@@ -2335,7 +2318,6 @@ for (const auto example_idx : selected_examples)
   // end = std::chrono::high_resolution_clock::now();
   // duration = std::chrono::duration<double>(end - start);
   // upper_bound_time += duration.count();
-
   // start = std::chrono::high_resolution_clock::now();
   
   if (it_split == candidate_splits.begin()) { continue; }
@@ -2353,19 +2335,10 @@ for (const auto example_idx : selected_examples)
 // std::cout << "isNan: " << isnan_time << std::endl;
 // std::cout << "Upper Bound: " << upper_bound_time << std::endl;
 // std::cout << "Closing Statements: " << closing_statements_time << std::endl << std::endl;
-
 // start = std::chrono::high_resolution_clock::now();
-
 // end = std::chrono::high_resolution_clock::now();
 // duration = std::chrono::duration<double>(end - start);
 // std::cout << "Measuring cost is about: " << duration.count() * selected_examples.size() << std::endl;// << std::endl << std::endl;
-
-
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Computing it_split ?? took: " << duration.count() << std::endl;
-
-// start = std::chrono::high_resolution_clock::now();
 
 for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
 {
@@ -2376,15 +2349,11 @@ for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
   dst.pos_label_distribution.Add(src.pos_label_distribution);
 }
 
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "src-dst Candidate Splits took: " << duration.count() << std::endl;
 
+/* #region Finalization - takes no time */
 const double initial_entropy = label_distribution.Entropy();
 utils::BinaryToIntegerConfusionMatrixDouble confusion;
 confusion.SetNumClassesIntDim(num_label_classes);
-
-// start = std::chrono::high_resolution_clock::now();
 
 // Select the best threshold.
 bool found_split = false;
@@ -2423,9 +2392,7 @@ for (auto &candidate_split : candidate_splits)
   }
 }
 
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Finalizing Best Split took: " << duration.count() << "\n\n" << std::endl;
+/* #endregion */
 
 return found_split ? SplitSearchResult::kBetterSplitFound
                    : SplitSearchResult::kNoBetterSplitFound;

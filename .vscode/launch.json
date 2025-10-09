@@ -162,7 +162,7 @@
       ]
     },
     {
-      "name": "Oblique Histogram on MIGHT",
+      "name": "Oblique Equal Width Histogram on MIGHT",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
