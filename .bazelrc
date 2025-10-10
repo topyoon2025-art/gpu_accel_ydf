@@ -39,7 +39,7 @@ build:fixed_1000_projections --cxxopt="-DHARD_CODE_1000_PROJECTIONS_FLAG=true"
 build:enable_dynamic_equal_width_histogramming --cxxopt="-DENABLE_DYNAMIC_HISTOGRAMMING_FLAG=1"
 build:enable_dynamic_random_histogramming --cxxopt="-DENABLE_DYNAMIC_HISTOGRAMMING_FLAG=2"
 # Enabled by Default
-build:disable_fast_equal_width_binning --cxxopt="-DFAST_EQUAL_WIDTH_BINNING_FLAG=0"
+build:enable_fast_equal_width_binning --cxxopt="-DFAST_EQUAL_WIDTH_BINNING_FLAG=1"
 
 
 
