@@ -2217,23 +2217,43 @@ namespace yggdrasil_decision_forests::model::decision_tree
 // Returns the index k of the last equal-width threshold <= a
 // (or –1 when a is smaller than the first threshold).
 static inline int EqualWidthThresholdIndex(
-    const float a, const float min_value, const float max_value,
-    const int   num_splits) {
-
+const float attribute, const float min_value, const float max_value,
+const int   num_splits) {
   if (num_splits <= 0) return -1;
 
   const float range = max_value - min_value;
   if (range <= 0.0f) return -1;
 
-  const float width = range / static_cast<float>(num_splits);  // same as in GenHistogramBins
+  // Fast bucketing via Bin Width arithmetic
+  const float width = range / static_cast<float>(num_splits);
+  const float x     = (attribute - min_value) / width - 0.5f;
+  int idx           = static_cast<int>(floorf(x));
 
-  // Position of a inside the grid, expressed in “bucket units”.
-  const float x   = (a - min_value) / width - 0.5f;
-  int         idx = static_cast<int>(floorf(x));
+  // Clamp to the nominal range (with "below first threshold" as -1)
+  if (idx < 0)           return -1;
+  if (idx >= num_splits) idx = num_splits - 1;
 
-  if (idx < 0)           return -1;              // a < first threshold
-  if (idx >= num_splits) idx = num_splits - 1;   // a >= last threshold
+  // Optional: Sometimes above is off-by-one vs. std::upper_bound due to floating point arithmetic
+  // Below's a 1-step correction to match std::upper_bound() on the actual thresholds.
+  // Compute thresholds using the exact same arithmetic as in GenHistogramBins:
+  // T[j] = min_value + (range * (j + 0.5f)) / num_splits;
+  const float Nf   = static_cast<float>(num_splits);
+  const float jf   = static_cast<float>(idx);
+  const float Tj   = min_value + (range * (jf + 0.5f)) / Nf;
 
+  if (attribute < Tj) { // attribute falls before this bin's threshold: move left by one
+    --idx;
+    return (idx >= 0) ? idx : -1;
+  }
+
+  if (idx + 1 < num_splits) {
+    // Next threshold: j+1 -> (j + 1.5f)
+    const float Tnext = min_value + (range * (jf + 1.5f)) / Nf;
+    if (attribute >= Tnext) {
+      // a reaches past next threshold; move right by one
+      ++idx;
+    }
+  }
   return idx;
 }
 
@@ -5574,6 +5594,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         {
           candidate_split = threshold_distribution(*random);
         }
+        // In Equal Width, these are produced already sorted
+        std::sort(candidate_splits.begin(), candidate_splits.end());
       }
       break;
       case proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH:
@@ -5590,8 +5612,6 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       default:
         return absl::InvalidArgumentError("Numerical histogram not implemented");
       }
-      // TODO Ariel aren't these already sorted?
-      std::sort(candidate_splits.begin(), candidate_splits.end());
       return candidate_splits;
     }
 
