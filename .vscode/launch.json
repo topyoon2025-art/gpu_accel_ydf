@@ -13,38 +13,6 @@
       ]
     },
     {
-      "name": "Synthetic 100k - Debugging Parallel Chrono",
-      "type": "cppdbg",
-      "request": "launch",
-      "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
-      "args": [
-        "--input_mode=synthetic",
-        "--rows=1000",
-        "--cols=4096",
-        "--num_trees",
-        "1000",
-        "--compute_oob_performances",
-        "false"
-      ],
-      "stopAtEntry": false,
-      "cwd": "${workspaceFolder}",
-      "environment": [],
-      "externalConsole": false,
-      "MIMode": "gdb",
-      "setupCommands": [
-        {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        },
-        {
-          "description": "Set Disassembly Flavor to Intel",
-          "text": "-gdb-set disassembly-flavor intel",
-          "ignoreFailures": true
-        }
-      ]
-    },
-    {
       "name": "Trunk 10k - Debugging Parallel Chrono",
       "type": "cppdbg",
       "request": "launch",
@@ -52,8 +20,10 @@
       "args": [
         "--input_mode=trunk",
         "--rows=10000",
+        "--cols=512",
         "--num_trees=10",
-        "--compute_oob_performances=false"
+        "--num_threads=-1"
+        // "--compute_oob_performances=false"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
