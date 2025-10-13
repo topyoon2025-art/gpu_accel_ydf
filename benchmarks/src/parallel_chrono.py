@@ -9,6 +9,7 @@ import subprocess, sys, logging
 
 import pandas as pd
 import utils.utils as utils
+import shlex
 
 log = logging.getLogger(__name__)
 
@@ -109,30 +110,40 @@ def parse_parallel_chrono(log: str) -> pd.DataFrame:
     return wide
 
 
-def write_csv(left: pd.DataFrame, params: dict[str, object], path: str):
-    right = pd.DataFrame(list(params.items()), columns=["Parameter", "Value"])
-    n = max(len(left), len(right))
+def write_csv(left: pd.DataFrame, cmds: list[tuple[str, str]], path: str):
+    """
+    left : timing table (threads × depths) produced by parse_parallel_chrono
+    cmds : list of (description, command-line) tuples
+    """
+    right = pd.DataFrame(cmds, columns=["Description", "Command"])
+
+    # One blank column + spacer (same as before)
+    n = max(len(left), len(right) + 1)     # +1 for our header row
     gap = pd.DataFrame({"": [""] * n, "  ": [""] * n})
-    
-    # Add headers for the params section
-    params_with_headers = pd.concat([
-        pd.DataFrame([["", "", "Parameter", "Value"]], columns=["", "  ", "Parameter", "Value"]),
-        right
-    ], ignore_index=True)
-    
-    # Adjust n to account for the extra header row
-    n = max(len(left), len(params_with_headers))
-    gap = pd.DataFrame({"": [""] * n, "  ": [""] * n})
-    
+
+    # Add header row for the command section
+    cmds_with_headers = pd.concat(
+        [
+            pd.DataFrame([["", "", "Description", "Command"]],
+                         columns=["", "  ", "Description", "Command"]),
+            right
+        ],
+        ignore_index=True
+    )
+
     (left.reindex(range(n)).fillna("")
          .pipe(lambda l: pd.concat([l, gap,
-                                    params_with_headers.reindex(range(n)).fillna("")], axis=1))
-     ).to_csv(path, index=False, header=False, quoting=csv.QUOTE_MINIMAL)  # header=False
-
+                                    cmds_with_headers.reindex(range(n)).fillna("")],
+                                   axis=1))
+     ).to_csv(path, index=False, header=False, quoting=csv.QUOTE_MINIMAL)
 
 if __name__ == "__main__":
     utils.setup_signal_handlers()
     a = get_args()
+
+    # The way this helper script itself was called
+    helper_invocation = "python3 " + " ".join(shlex.quote(arg)
+                                          for arg in sys.argv)
 
     if (not a.skip_build):
         if not utils.build_binary(a, chrono_mode=True):
@@ -178,8 +189,8 @@ if __name__ == "__main__":
     out_dir = Path("benchmarks/results/per_function_timing") / utils.get_cpu_model_proc() / exp / dataset_name
     out_dir.mkdir(parents=True, exist_ok=True)   
 
-    print("\nRunning binary with command: \n", cmd)
-    print("\n\n")
+    binary_cmd_str = " ".join(cmd)
+    print("\nRunning binary with command:\n", binary_cmd_str, "\n\n")
 
     try:
         utils.configure_cpu_for_benchmarks(True)
@@ -223,7 +234,14 @@ if __name__ == "__main__":
         fname  = f"{a.tree_depth}Depth-{a.num_threads}Threads.csv"
         out_fp = out_dir / fname
 
-        write_csv(table, vars(a), out_fp)
+        cmd_lines = [
+            ("Helper invocation", helper_invocation),
+            ("Bazel build", utils.last_build_cmd if utils.last_build_cmd else "(build skipped)"),
+            ("Binary command", binary_cmd_str),
+        ]
+
+        write_csv(table, cmd_lines, out_fp)
+
         print("CSV written to", out_fp)
 
     except Exception as e:

@@ -9,6 +9,8 @@ import argparse
 
 # Global flag to track E-core state
 cpu_modified = False
+# Remember the *exact* Bazel command we executed, to add to CSV
+last_build_cmd = ""
 
 
 def get_base_parser():
@@ -30,6 +32,7 @@ def get_base_parser():
     parser.add_argument("--projection_density_factor", type=int)
     parser.add_argument("--max_num_projections", type=int)
     parser.add_argument("--sample_projection_mode", choices=["Fast", "Slow"], default="Fast")
+    parser.add_argument("--enable_fast_equal_width_binning", action="store_true")
     
     return parser
 
@@ -87,8 +90,9 @@ def setup_signal_handlers():
 def build_binary(args, chrono_mode):
     """Build the binary using bazel. Returns True if successful, False otherwise."""
     
-    base_cmd = ['bazel', 'build', '--ui_event_filters=-warning', '-c', 'opt', '--config=fixed_1000_projections']
-    finished_cmd = base_cmd
+    base_cmd = ['bazel', 'build', '--ui_event_filters=-warning',
+                '-c', 'opt', '--config=fixed_1000_projections']
+    finished_cmd = base_cmd[:] # ← work on a copy
 
     if args.numerical_split_type == "Dynamic Random Histogramming":
         finished_cmd.append('--config=enable_dynamic_random_histogramming')
@@ -99,8 +103,15 @@ def build_binary(args, chrono_mode):
     
     if chrono_mode:
         finished_cmd.append('--config=multithreaded_chrono_profile')
-    
+
+    if args.enable_fast_equal_width_binning:
+        finished_cmd.append('--config=enable_fast_equal_width_binning')
+        
+    finished_cmd.append("--ui_event_filters=-warning")
     finished_cmd.append('//examples:train_oblique_forest')
+
+    global last_build_cmd
+    last_build_cmd = " ".join(finished_cmd)
 
     print("Building binary...")
     print(f"Running: {' '.join(finished_cmd)}")
