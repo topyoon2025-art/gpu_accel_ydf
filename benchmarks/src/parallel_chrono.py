@@ -33,82 +33,121 @@ def get_args():
     return p.parse_args()
 
 
-# log parsing
-TIMING_RX = re.compile(
+# “Classic” (no histogram)
+TIMING_RX_BASIC = re.compile(
     r"thread\s+(\d+)\s+tree\s+(\d+)\s+depth\s+(\d+)\s+"
     r"nodes\s+(\d+)\s+samples\s+(\d+)\s+"
     r"SampleProj\s+([0-9.eE+-]+)s\s+"
     r"ProjEval\s+([0-9.eE+-]+)s\s+"
     r"EvalProj\s+([0-9.eE+-]+)s"
 )
-# TRAIN_RX = re.compile(r"Training wall-time:\s*([0-9.eE+-]+)s")
+
+# Extended with the 4 histogram phases
+TIMING_RX_HISTO = re.compile(
+    r"thread\s+(\d+)\s+tree\s+(\d+)\s+depth\s+(\d+)\s+"
+    r"nodes\s+(\d+)\s+samples\s+(\d+)\s+"
+    r"SampleProj\s+([0-9.eE+-]+)s\s+"
+    r"ProjEval\s+([0-9.eE+-]+)s\s+"
+    r"EvalProj\s+([0-9.eE+-]+)s\s+"
+    r"kFindMinMaxHistogram\s+([0-9.eE+-]+)s\s+"
+    r"kGenHistogramBins\s+([0-9.eE+-]+)s\s+"
+    r"kAssignSamplesToHistogram\s+([0-9.eE+-]+)s\s+"
+    r"kFinalizeHistogram\s+([0-9.eE+-]+)s"
+)
 
 
-def parse_parallel_chrono(log: str) -> pd.DataFrame:
-    # ------------------------------------------------------
-    # 1. collect the information from the log
-    # ------------------------------------------------------
+def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
+    """
+    Returns one wide dataframe with one block per thread.  
+    Automatically detects whether the log contains the
+    k*Histogram timings and parses them if present.
+    """
+
+    # Decide which pattern to use
+    has_histogram = "kGenHistogramBins" in raw_log
+    rx = TIMING_RX_HISTO if has_histogram else TIMING_RX_BASIC
+
     rows = []
-    for m in TIMING_RX.finditer(log):
-        tid, tree, depth, nodes, samples, sp, pe, ep = m.groups()
-        rows.append(dict(thread   = int(tid),
-                         tree     = int(tree),
-                         depth    = int(depth),
-                         nodes    = int(nodes),
-                         samples  = int(samples),
-                         SampleProjection   = float(sp),
-                         ProjectionEvaluate = float(pe),
-                         EvaluateProjection = float(ep)))
+    for m in rx.finditer(raw_log):
+        g = m.groups()
+        if has_histogram:
+            (tid, tree, depth, nodes, samples,
+             sp, pe, ep,
+             fmm, ghb, ast, fh) = g
+
+            rows.append(dict(
+                thread                = int(tid),
+                tree                  = int(tree),
+                depth                 = int(depth),
+                nodes                 = int(nodes),
+                samples               = int(samples),
+                SampleProjection      = float(sp),
+                ProjectionEvaluate    = float(pe),
+                EvaluateProjection    = float(ep),
+                FindMinMaxHistogram   = float(fmm),
+                GenHistogramBins      = float(ghb),
+                AssignSamplesToHist   = float(ast),
+                FinalizeHistogram     = float(fh),
+            ))
+        else:
+            tid, tree, depth, nodes, samples, sp, pe, ep = g
+            rows.append(dict(
+                thread             = int(tid),
+                tree               = int(tree),
+                depth              = int(depth),
+                nodes              = int(nodes),
+                samples            = int(samples),
+                SampleProjection   = float(sp),
+                ProjectionEvaluate = float(pe),
+                EvaluateProjection = float(ep),
+            ))
 
     if not rows:
         raise ValueError("no parallel-chrono lines found in log")
 
     df = pd.DataFrame(rows)
 
-    # ------------------------------------------------------
-    # 2. build one block per thread
-    # ------------------------------------------------------
+    # ──────────────────────────────────────────────────────────────────────
+    # Build one block per thread (same logic as before)
+    # ──────────────────────────────────────────────────────────────────────
     blocks = []
-
     for tid, g in df.groupby("thread", sort=True):
         g = g.sort_values(["tree", "depth"]).reset_index(drop=True)
-        
-        # Rename columns
-        g = g.rename(columns={
-            "samples": "Active Samples",
-            "ProjectionEvaluate": "ApplyProjection"
-        })
-        
-        # Drop the thread column
-        g = g.drop(columns=["thread"])
-        
-        # Create a DataFrame with thread ID in first row, column names in second row
-        thread_header = pd.DataFrame([[f"Thread {tid}"] + [""] * (len(g.columns) - 1)], 
-                                   columns=g.columns)
-        col_names = pd.DataFrame([g.columns.tolist()], columns=g.columns)
-        
-        # Stack: thread header, column names, then data
-        g_with_headers = pd.concat([thread_header, col_names, g], ignore_index=True)
-        
-        blocks.append(g_with_headers)
 
-    # ------------------------------------------------------
-    # 3. concatenate blocks side-by-side, insert a blank
-    #    column between two successive blocks
-    # ------------------------------------------------------
+        # User-friendly column names
+        rename_map = {
+            "samples": "Active Samples",
+            "ProjectionEvaluate": "ApplyProjection",
+        }
+        g = g.rename(columns=rename_map)
+
+        # Thread id becomes a dedicated header row, drop from data
+        g = g.drop(columns=["thread"])
+
+        # First two header rows
+        thread_header = pd.DataFrame(
+            [[f"Thread {tid}"] + [""] * (len(g.columns) - 1)],
+            columns=g.columns)
+        col_names = pd.DataFrame([g.columns.tolist()], columns=g.columns)
+
+        blocks.append(pd.concat([thread_header, col_names, g],
+                                 ignore_index=True))
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Side-by-side concatenation + blank separators
+    # ──────────────────────────────────────────────────────────────────────
     max_len = max(len(b) for b in blocks)
     gap = pd.DataFrame({"": [""] * max_len})
 
     padded = []
-    for i, b in enumerate(blocks):
-        padded.append(b.reindex(range(max_len)).fillna(""))
+    for i, blk in enumerate(blocks):
+        padded.append(blk.reindex(range(max_len)).fillna(""))
         if i + 1 < len(blocks):
             padded.append(gap)
 
     wide = pd.concat(padded, axis=1)
 
     return wide
-
 
 def write_csv(left: pd.DataFrame, cmds: list[tuple[str, str]], path: str):
     """
@@ -226,6 +265,9 @@ if __name__ == "__main__":
         dt = time.perf_counter() - t0
         print(f"\n⏱  Binary subprocess ran for {dt:.4f} s\n")
         log_plain = re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', log)
+
+        print(log_plain[:1000])
+
         table = parse_parallel_chrono(log_plain)
 
         # ------------------------------------------------------------------

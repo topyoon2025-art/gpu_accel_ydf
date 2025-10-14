@@ -992,14 +992,31 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
         for (int t = 0; t < static_cast<int>(time_ns().size()); ++t) {
           for (int d = 0; d < static_cast<int>(time_ns()[t].size()); ++d) {
             auto& arr = time_ns()[t][d];
-            LOG(INFO) << "thread "   << tree_thread_id()[t]
+
+            // Non-Histogram
+            if (rf_config.mutable_decision_tree()->numerical_split().type() == yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_EXACT) {
+              LOG(INFO) << "thread "   << tree_thread_id()[t]
+                        << " tree "    << t
+                        << " depth "   << d
+                        << " nodes "   << node_cnt()[t][d]
+                        << " samples " << sample_cnt()[t][d]
+                        << " SampleProj " << arr[kSampleProjection]   * 1e-9 << "s"
+                        << " ProjEval "   << arr[kProjectionEvaluate] * 1e-9 << "s"
+                        << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s";
+            } else {
+                LOG(INFO) << "thread "   << tree_thread_id()[t]
                       << " tree "    << t
                       << " depth "   << d
                       << " nodes "   << node_cnt()[t][d]
                       << " samples " << sample_cnt()[t][d]
                       << " SampleProj " << arr[kSampleProjection]   * 1e-9 << "s"
                       << " ProjEval "   << arr[kProjectionEvaluate] * 1e-9 << "s"
-                      << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s";
+                      << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s"
+                      << " kFindMinMaxHistogram " << arr[kFindMinMaxHistogram]   * 1e-9 << "s"
+                      << " kGenHistogramBins " << arr[kGenHistogramBins]   * 1e-9 << "s"
+                      << " kAssignSamplesToHistogram " << arr[kAssignSamplesToHistogram]   * 1e-9 << "s"
+                      << " kFinalizeHistogram " << arr[kFinalizeHistogram]   * 1e-9 << "s";
+            }
           }
         }
         LOG(INFO) << "\n==========================================\n\n";

@@ -2,8 +2,17 @@
 namespace yggdrasil_decision_forests::chrono_prof {
 
 // ---------- enum + fallback global --------------------------------
-enum FuncId { kTreeTrain = 0, kSampleProjection, kProjectionEvaluate,
-              kEvaluateProjection, kNumFuncs };
+enum FuncId {
+  kTreeTrain = 0,
+  kSampleProjection,
+  kProjectionEvaluate,
+  kEvaluateProjection,
+  kFindMinMaxHistogram,
+  kGenHistogramBins,
+  kAssignSamplesToHistogram,
+  kFinalizeHistogram,
+  kNumFuncs
+};
 
 inline std::array<std::atomic<uint64_t>, kNumFuncs> global_stats{};
 

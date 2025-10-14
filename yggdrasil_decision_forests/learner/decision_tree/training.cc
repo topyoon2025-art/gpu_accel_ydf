@@ -263,6 +263,9 @@ namespace yggdrasil_decision_forests::model::decision_tree
         const absl::Span<const float> attributes, float *min_value,
         float *max_value)
     {
+      CHRONO_SCOPE(
+      ::yggdrasil_decision_forests::chrono_prof::kFindMinMaxHistogram);
+
       float local_min_value = 0;
       float local_max_value = 0;
       bool first = true;
@@ -2324,10 +2327,6 @@ for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
   auto &candidate_split = candidate_splits[split_idx];
   candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
   candidate_split.threshold = bins[split_idx];
-
-  // if (split_idx != 0) {
-  //   std::cout << "Difference w/ previous bin: " << candidate_split.threshold - candidate_splits[split_idx-1].threshold << std::endl;
-  // }
 }
 
 
@@ -2341,7 +2340,8 @@ const bool use_equal_width_fast_path =
 // Compute the split score of each threshold.
 // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
 for (const auto example_idx : selected_examples) {
-  // start = std::chrono::high_resolution_clock::now();
+  CHRONO_SCOPE(
+      ::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
 
   const int32_t label = labels[example_idx];
   const float weight = weights.empty() ? 1.f : weights[example_idx];
@@ -2407,9 +2407,6 @@ for (const auto example_idx : selected_examples) {
   // closing_statements_time += duration.count();
 }}
 
-// add ifndef ndebug:
-// run 
-
 // std::cout << "Assigning Variables: " << total_assign_variables_time << std::endl;
 // std::cout << "isNan: " << isnan_time << std::endl;
 // std::cout << "Upper Bound: " << upper_bound_time << std::endl;
@@ -2421,6 +2418,9 @@ for (const auto example_idx : selected_examples) {
 
 for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
 {
+  CHRONO_SCOPE(
+      ::yggdrasil_decision_forests::chrono_prof::kFinalizeHistogram);
+
   const auto &src = candidate_splits[split_idx + 1];
   auto &dst = candidate_splits[split_idx];
   dst.num_positive_examples_without_weights +=
@@ -5582,6 +5582,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         const absl::Span<const float> attributes, const float min_value,
         const float max_value, utils::RandomEngine *random)
     { // TODO is max value gotten for free from ApplyProjection?
+      CHRONO_SCOPE(
+      ::yggdrasil_decision_forests::chrono_prof::kGenHistogramBins);
+
       STATUS_CHECK_GE(num_splits, 0);
       std::vector<float> candidate_splits(num_splits);
       switch (type)
