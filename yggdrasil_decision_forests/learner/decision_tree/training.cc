@@ -2323,86 +2323,86 @@ ASSIGN_OR_RETURN(
 
 
 std::vector<CandidateSplit> candidate_splits(bins.size());
-for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
 {
   CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kHistogramSetNumClasses);
-
-  auto &candidate_split = candidate_splits[split_idx];
-  candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
-  candidate_split.threshold = bins[split_idx];
+  for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++) {
+    auto &candidate_split = candidate_splits[split_idx];
+    candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
+    candidate_split.threshold = bins[split_idx];
+  }
 }
-
 
 const bool use_equal_width_fast_path =
 (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) && FAST_EQUAL_WIDTH_BINNING;
 
 // Compute the split score of each threshold.
 // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
-for (const auto example_idx : selected_examples) {
+{
   CHRONO_SCOPE(
       ::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
-
-  const int32_t label = labels[example_idx];
-  const float weight = weights.empty() ? 1.f : weights[example_idx];
-  float attribute = attributes[example_idx];
- 
-  if (std::isnan(attribute)) { attribute = na_replacement; }
- 
-  // Return 1st element of candidate_splits > attribute
-  if (use_equal_width_fast_path) {
-    const int idx = EqualWidthThresholdIndex(
-    attribute, min_value, max_value, static_cast<int>(candidate_splits.size()));
-    
-    // Matches the original behavior when upper_bound(...) == begin()
-    if (idx < 0) { continue; }
-
-    auto& it_split = candidate_splits[idx];
-
-    // Check fast binning choice against std::upper_bound()
-    #ifndef NDEBUG  // ---------- debug-only cross-check -----------------
-        auto it_ref = std::upper_bound(
-            candidate_splits.begin(), candidate_splits.end(), attribute,
-            [](float a, const CandidateSplit& b) { return a < b.threshold; });
-
-        int idx_ref = (it_ref == candidate_splits.begin())
-                          ? -1
-                          : static_cast<int>(std::distance(candidate_splits.begin(),
-                                                          --it_ref));
-        DCHECK_EQ(idx, idx_ref)
-            << "Fast equal-width binning disagrees with std::upper_bound at " << idx;
-    #endif
-
-    it_split.num_positive_examples_without_weights++;
-    it_split.pos_label_distribution.Add(label, weight);
-  } else {
-  // Existing path for random (or other) threshold types
-  auto it_split = std::upper_bound(
-  candidate_splits.begin(), candidate_splits.end(), attribute,
-  [](const float a, const CandidateSplit& b) { return a < b.threshold; });
+  for (const auto example_idx : selected_examples) {
+    const int32_t label = labels[example_idx];
+    const float weight = weights.empty() ? 1.f : weights[example_idx];
+    float attribute = attributes[example_idx];
   
-  if (it_split == candidate_splits.begin()) { continue; }
+    if (std::isnan(attribute)) { attribute = na_replacement; }
+  
+    // Return 1st element of candidate_splits > attribute
+    if (use_equal_width_fast_path) {
+      const int idx = EqualWidthThresholdIndex(
+      attribute, min_value, max_value, static_cast<int>(candidate_splits.size()));
+      
+      // Matches the original behavior when upper_bound(...) == begin()
+      if (idx < 0) { continue; }
 
-  --it_split;
-  it_split->num_positive_examples_without_weights++;
-  it_split->pos_label_distribution.Add(label, weight);
-}}
+      auto& it_split = candidate_splits[idx];
 
-for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--) {
+      // Check fast binning choice against std::upper_bound()
+      #ifndef NDEBUG  // ---------- debug-only cross-check -----------------
+          auto it_ref = std::upper_bound(
+              candidate_splits.begin(), candidate_splits.end(), attribute,
+              [](float a, const CandidateSplit& b) { return a < b.threshold; });
+
+          int idx_ref = (it_ref == candidate_splits.begin())
+                            ? -1
+                            : static_cast<int>(std::distance(candidate_splits.begin(),
+                                                            --it_ref));
+          DCHECK_EQ(idx, idx_ref)
+              << "Fast equal-width binning disagrees with std::upper_bound at " << idx;
+      #endif
+
+      it_split.num_positive_examples_without_weights++;
+      it_split.pos_label_distribution.Add(label, weight);
+    } else {
+    // Existing path for random (or other) threshold types
+    auto it_split = std::upper_bound(
+    candidate_splits.begin(), candidate_splits.end(), attribute,
+    [](const float a, const CandidateSplit& b) { return a < b.threshold; });
+    
+    if (it_split == candidate_splits.begin()) { continue; }
+
+    --it_split;
+    it_split->num_positive_examples_without_weights++;
+    it_split->pos_label_distribution.Add(label, weight);
+  }}
+}
+
+{
   CHRONO_SCOPE(
       ::yggdrasil_decision_forests::chrono_prof::kUpdateDistributionsHistogram);
-
-  const auto &src = candidate_splits[split_idx + 1];
-  auto &dst = candidate_splits[split_idx];
-  dst.num_positive_examples_without_weights +=
-      src.num_positive_examples_without_weights;
-  dst.pos_label_distribution.Add(src.pos_label_distribution);
+  for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--) {
+    const auto &src = candidate_splits[split_idx + 1];
+    auto &dst = candidate_splits[split_idx];
+    dst.num_positive_examples_without_weights +=
+        src.num_positive_examples_without_weights;
+    dst.pos_label_distribution.Add(src.pos_label_distribution);
+  }
 }
 
 
 /* #region Finalization - takes no time */
 double initial_entropy;
 utils::BinaryToIntegerConfusionMatrixDouble confusion;
-
 {
     CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kComputeEntropy);
   initial_entropy = label_distribution.Entropy();
@@ -2411,9 +2411,11 @@ utils::BinaryToIntegerConfusionMatrixDouble confusion;
 
 // Select the best threshold.
 bool found_split = false;
+{
+   CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSelectBestThresholdHistogram);
 for (auto &candidate_split : candidate_splits)
 {
-  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSelectBestThresholdHistogram);
+ 
   if (selected_examples.size() -
               candidate_split.num_positive_examples_without_weights <
           min_num_obs ||
@@ -2445,6 +2447,7 @@ for (auto &candidate_split : candidate_splits)
     condition->set_na_value(na_replacement >= candidate_split.threshold);
     found_split = true;
   }
+}
 }
 
 /* #endregion */

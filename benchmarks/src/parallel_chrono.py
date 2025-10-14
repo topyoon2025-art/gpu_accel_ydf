@@ -52,17 +52,18 @@ TIMING_RX_HISTO = re.compile(
     r"ProjEval\s+([0-9.eE+-]+)s\s+"
     r"EvalProj\s+([0-9.eE+-]+)s\s+"
     r"kFindSplitHistogram\s+([0-9.eE+-]+)s\s+"
+    r"kChecksHistogram\s+([0-9.eE+-]+)s\s+"
     r"kFindMinMaxHistogram\s+([0-9.eE+-]+)s\s+"
     r"kGenHistogramBins\s+([0-9.eE+-]+)s\s+"
     r"kHistogramSetNumClasses\s+([0-9.eE+-]+)s\s+"
     r"kAssignSamplesToHistogram\s+([0-9.eE+-]+)s\s+"
     r"kUpdateDistributionsHistogram\s+([0-9.eE+-]+)s\s+"
+    r"kComputeEntropy\s+([0-9.eE+-]+)s\s+"
     r"kSelectBestThresholdHistogram\s+([0-9.eE+-]+)s"
 )
 
 
 def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
-    # decide which syntax to use  (sort is default, histogram if marker present)
     histo_mode = "kSelectBestThresholdHistogram" in raw_log
     rx = TIMING_RX_HISTO if histo_mode else TIMING_RX_SORT
 
@@ -73,7 +74,7 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
         if histo_mode:
             (tid, tree, depth, nodes, samples,
              sp, pe, ep,
-             fsh, fmm, ghb, hsnc, ast, udh, sbt) = g
+             fsh, chk, fmm, ghb, hsnc, ast, udh, ce, sbt) = g
 
             rows.append(dict(
                 thread                       = int(tid),
@@ -85,11 +86,13 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
                 ProjectionEvaluate           = float(pe),
                 EvaluateProjection           = float(ep),
                 FindSplitHistogram           = float(fsh),
+                ChecksHistogram              = float(chk),
                 FindMinMaxHistogram          = float(fmm),
                 GenHistogramBins             = float(ghb),
                 HistogramSetNumClasses       = float(hsnc),
                 AssignSamplesToHist          = float(ast),
                 UpdateDistributionsHistogram = float(udh),
+                ComputeEntropy               = float(ce),
                 SelectBestThresholdHistogram = float(sbt),
             ))
         else:  # sort (default)
