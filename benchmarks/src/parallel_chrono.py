@@ -34,12 +34,14 @@ def get_args():
 
 
 # “Classic” (no histogram)
-TIMING_RX_BASIC = re.compile(
+TIMING_RX_SORT = re.compile(
     r"thread\s+(\d+)\s+tree\s+(\d+)\s+depth\s+(\d+)\s+"
     r"nodes\s+(\d+)\s+samples\s+(\d+)\s+"
     r"SampleProj\s+([0-9.eE+-]+)s\s+"
     r"ProjEval\s+([0-9.eE+-]+)s\s+"
-    r"EvalProj\s+([0-9.eE+-]+)s"
+    r"EvalProj\s+([0-9.eE+-]+)s\s+"
+    r"kSortFillExampleBucketSet\s+([0-9.eE+-]+)s\s+"
+    r"kSortScanSplits\s+([0-9.eE+-]+)s"
 )
 
 # Extended with the 4 histogram phases
@@ -58,19 +60,24 @@ TIMING_RX_HISTO = re.compile(
 
 def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
     """
-    Returns one wide dataframe with one block per thread.  
-    Automatically detects whether the log contains the
-    k*Histogram timings and parses them if present.
+    Parse the per-depth “parallel-chrono” lines.
+
+    Default expectation  : sort variant
+        SampleProj … EvalProj … kSortFillExampleBucketSet … kSortScanSplits
+
+    Alternate detection  : histogram variant (if kGenHistogramBins is present)
+        SampleProj … EvalProj … kFindMinMaxHistogram … kFinalizeHistogram
     """
 
-    # Decide which pattern to use
-    has_histogram = "kGenHistogramBins" in raw_log
-    rx = TIMING_RX_HISTO if has_histogram else TIMING_RX_BASIC
+    # Decide which regex to use
+    histo_mode = "kGenHistogramBins" in raw_log
+    rx = TIMING_RX_HISTO if histo_mode else TIMING_RX_SORT
 
     rows = []
     for m in rx.finditer(raw_log):
         g = m.groups()
-        if has_histogram:
+
+        if histo_mode:
             (tid, tree, depth, nodes, samples,
              sp, pe, ep,
              fmm, ghb, ast, fh) = g
@@ -89,17 +96,22 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
                 AssignSamplesToHist   = float(ast),
                 FinalizeHistogram     = float(fh),
             ))
-        else:
-            tid, tree, depth, nodes, samples, sp, pe, ep = g
+        else:  # sort (default)
+            (tid, tree, depth, nodes, samples,
+             sp, pe, ep,
+             fill, scan) = g
+
             rows.append(dict(
-                thread             = int(tid),
-                tree               = int(tree),
-                depth              = int(depth),
-                nodes              = int(nodes),
-                samples            = int(samples),
-                SampleProjection   = float(sp),
-                ProjectionEvaluate = float(pe),
-                EvaluateProjection = float(ep),
+                thread                       = int(tid),
+                tree                         = int(tree),
+                depth                        = int(depth),
+                nodes                        = int(nodes),
+                samples                      = int(samples),
+                SampleProjection             = float(sp),
+                ProjectionEvaluate           = float(pe),
+                EvaluateProjection           = float(ep),
+                SortFillExampleBucketSet     = float(fill),
+                SortScanSplits               = float(scan),
             ))
 
     if not rows:
@@ -108,34 +120,29 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
     df = pd.DataFrame(rows)
 
     # ──────────────────────────────────────────────────────────────────────
-    # Build one block per thread (same logic as before)
+    # Build one block per thread (unchanged logic)
     # ──────────────────────────────────────────────────────────────────────
     blocks = []
     for tid, g in df.groupby("thread", sort=True):
         g = g.sort_values(["tree", "depth"]).reset_index(drop=True)
 
-        # User-friendly column names
-        rename_map = {
+        # Friendlier column names
+        g = g.rename(columns={
             "samples": "Active Samples",
-            "ProjectionEvaluate": "ApplyProjection",
-        }
-        g = g.rename(columns=rename_map)
+            "ProjectionEvaluate": "ApplyProjection"
+        })
 
-        # Thread id becomes a dedicated header row, drop from data
         g = g.drop(columns=["thread"])
 
-        # First two header rows
+        # Header rows
         thread_header = pd.DataFrame(
             [[f"Thread {tid}"] + [""] * (len(g.columns) - 1)],
             columns=g.columns)
         col_names = pd.DataFrame([g.columns.tolist()], columns=g.columns)
 
-        blocks.append(pd.concat([thread_header, col_names, g],
-                                 ignore_index=True))
+        blocks.append(pd.concat([thread_header, col_names, g], ignore_index=True))
 
-    # ──────────────────────────────────────────────────────────────────────
-    # Side-by-side concatenation + blank separators
-    # ──────────────────────────────────────────────────────────────────────
+    # Side-by-side layout with a blank separator
     max_len = max(len(b) for b in blocks)
     gap = pd.DataFrame({"": [""] * max_len})
 
@@ -145,9 +152,7 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
         if i + 1 < len(blocks):
             padded.append(gap)
 
-    wide = pd.concat(padded, axis=1)
-
-    return wide
+    return pd.concat(padded, axis=1)
 
 def write_csv(left: pd.DataFrame, cmds: list[tuple[str, str]], path: str):
     """

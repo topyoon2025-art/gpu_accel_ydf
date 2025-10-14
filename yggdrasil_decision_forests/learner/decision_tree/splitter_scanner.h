@@ -61,9 +61,7 @@
 
 #include <algorithm>
 #include <functional>
-#include <iterator>
 #include <limits>
-#include <random>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -77,9 +75,9 @@
 #include "yggdrasil_decision_forests/learner/decision_tree/uplift.h"
 #include "yggdrasil_decision_forests/learner/decision_tree/utils.h"
 #include "yggdrasil_decision_forests/model/decision_tree/decision_tree.pb.h"
-#include "yggdrasil_decision_forests/utils/compatibility.h"
 #include "yggdrasil_decision_forests/utils/logging.h"
 #include "yggdrasil_decision_forests/utils/random.h"
+#include "yggdrasil_decision_forests/utils/parallel_chrono.h"
 
 namespace yggdrasil_decision_forests {
 namespace model {
@@ -629,7 +627,8 @@ void FillExampleBucketSet(
     const typename ExampleBucketSet::FeatureBucketType::Filler& feature_filler,
     const typename ExampleBucketSet::LabelBucketType::Filler& label_filler,
     ExampleBucketSet* example_bucket_set, PerThreadCacheV2* cache) {
-  // IDK what the Cache does
+  // Ariel: IDK what the Cache does
+  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSortFillExampleBucketSet);
 
 
   /* #region Allocate the buckets | takes practically 0 time */
@@ -724,6 +723,9 @@ SplitSearchResult ScanSplits(
     const SignedExampleIdx num_examples, const int min_num_obs,
     const int attribute_idx, proto::NodeCondition* condition,
     PerThreadCacheV2* cache) {
+      
+  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSortScanSplits);
+
   using FeatureBucketType = typename ExampleBucketSet::FeatureBucketType;
 
   /* #region Check Validity, Initialize */

@@ -27,14 +27,12 @@
 #include <vector>
 
 #include "absl/container/btree_set.h"
-#include "absl/log/log.h"
 #include "absl/random/distributions.h"
 #include "absl/random/random.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "Eigen/Dense"
-#include "Eigen/Eigenvalues"
 #include "yggdrasil_decision_forests/dataset/data_spec.pb.h"
 #include "yggdrasil_decision_forests/dataset/types.h"
 #include "yggdrasil_decision_forests/dataset/vertical_dataset.h"
@@ -48,7 +46,6 @@
 #include "yggdrasil_decision_forests/utils/random.h"
 #include "yggdrasil_decision_forests/utils/parallel_chrono.h"
 #include <fstream>
-#include <iomanip>
 
 
 #ifndef PRINT_PROJECTION_MATRICES_FLAG
@@ -344,10 +341,13 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
 
   // Projection are never missing.
   const float na_replacement = 0;
+  {
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kEvaluateProjection);
 #ifndef NDEBUG
 // Ariel - this grows linearly w/ proj_vals, but not executed in production! Only shows up in Intel Profiler - Ignore
   for (const float v : projection_values) { DCHECK(!std::isnan(v)); }
 #endif
+  }
 
   // Find a good split in the current_projection.
   SplitSearchResult result;
@@ -359,7 +359,7 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
         result,
         FindSplitLabelClassificationFeatureNumericalCart(
             dense_example_idxs, selected_weights,
-            projection_values, // Ariel: vector?
+            projection_values,
             selected_labels, label_stats.num_label_classes, na_replacement,
             min_num_obs, dt_config, label_stats.label_distribution,
             first_attribute_idx, effective_internal_config, condition, cache));

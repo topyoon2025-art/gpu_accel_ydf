@@ -60,7 +60,6 @@
 #include "yggdrasil_decision_forests/model/decision_tree/decision_tree.h"
 #include "yggdrasil_decision_forests/model/decision_tree/decision_tree.pb.h"
 #include "yggdrasil_decision_forests/utils/cast.h"
-#include "yggdrasil_decision_forests/utils/concurrency.h"
 #include "yggdrasil_decision_forests/utils/distribution.h"
 #include "yggdrasil_decision_forests/utils/distribution.pb.h"
 #include "yggdrasil_decision_forests/utils/logging.h"
@@ -2511,7 +2510,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     // class. In case of binary classification, "num_label_classes" is 3 (OOB,
     // False, True).
 
-      if (weights.empty()) // Ariel: This is our case. Idk what weights mean
+      if (weights.empty()) // Ariel: This is our case
       {
         // No significant Memory access here.
         LabelBinaryCategoricalOneValueBucket</*weighted=*/false>::Filler

@@ -1002,7 +1002,10 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                         << " samples " << sample_cnt()[t][d]
                         << " SampleProj " << arr[kSampleProjection]   * 1e-9 << "s"
                         << " ProjEval "   << arr[kProjectionEvaluate] * 1e-9 << "s"
-                        << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s";
+                        << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s"
+                        << " kSortFillExampleBucketSet "   << arr[kSortFillExampleBucketSet] * 1e-9 << "s"
+                        << " kSortScanSplits "   << arr[kSortScanSplits] * 1e-9 << "s"
+                        ;
             } else {
                 LOG(INFO) << "thread "   << tree_thread_id()[t]
                       << " tree "    << t

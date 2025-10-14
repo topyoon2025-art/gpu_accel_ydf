@@ -1,3 +1,4 @@
+#pragma once
 #ifdef CHRONO_ENABLED
 namespace yggdrasil_decision_forests::chrono_prof {
 
@@ -7,6 +8,8 @@ enum FuncId {
   kSampleProjection,
   kProjectionEvaluate,
   kEvaluateProjection,
+  kSortFillExampleBucketSet,
+  kSortScanSplits,
   kFindMinMaxHistogram,
   kGenHistogramBins,
   kAssignSamplesToHistogram,
