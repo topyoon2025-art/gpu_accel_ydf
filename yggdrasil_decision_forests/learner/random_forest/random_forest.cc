@@ -1005,6 +1005,11 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                         << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s"
                         << " kSortFillExampleBucketSet "   << arr[kSortFillExampleBucketSet] * 1e-9 << "s"
                         << " kSortScanSplits "   << arr[kSortScanSplits] * 1e-9 << "s"
+                        << " kSortInitBuckets "   << arr[kSortInitBuckets] * 1e-9 << "s"
+                        << " kSortFillBuckets "   << arr[kSortFillBuckets] * 1e-9 << "s"
+                        << " kSortFinalizeBuckets "   << arr[kSortFinalizeBuckets] * 1e-9 << "s"
+                        << " kSortFeatures "   << arr[kSortFeatures] * 1e-9 << "s"
+                        << " kSortLabels "   << arr[kSortLabels] * 1e-9 << "s"
                         ;
             } else {
                 LOG(INFO) << "thread "   << tree_thread_id()[t]

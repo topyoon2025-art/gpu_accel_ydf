@@ -8,8 +8,15 @@ enum FuncId {
   kSampleProjection,
   kProjectionEvaluate,
   kEvaluateProjection,
+
   kSortFillExampleBucketSet,
   kSortScanSplits,
+  kSortInitBuckets,
+  kSortFillBuckets,
+  kSortFinalizeBuckets,
+  kSortFeatures,
+  kSortLabels,
+
   kFindSplitHistogram,
   kChecksHistogram,
   kFindMinMaxHistogram,

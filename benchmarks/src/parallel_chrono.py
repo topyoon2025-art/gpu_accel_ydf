@@ -37,11 +37,16 @@ def get_args():
 TIMING_RX_SORT = re.compile(
     r"thread\s+(\d+)\s+tree\s+(\d+)\s+depth\s+(\d+)\s+"
     r"nodes\s+(\d+)\s+samples\s+(\d+)\s+"
-    r"SampleProj\s+([0-9.eE+-]+)s\s+"
-    r"ProjEval\s+([0-9.eE+-]+)s\s+"
-    r"EvalProj\s+([0-9.eE+-]+)s\s+"
-    r"kSortFillExampleBucketSet\s+([0-9.eE+-]+)s\s+"
-    r"kSortScanSplits\s+([0-9.eE+-]+)s"
+    r"SampleProj\s+([0-9.eE+-]+)s\s+"          #  6
+    r"ProjEval\s+([0-9.eE+-]+)s\s+"            #  7
+    r"EvalProj\s+([0-9.eE+-]+)s\s+"            #  8
+    r"kSortFillExampleBucketSet\s+([0-9.eE+-]+)s\s+"   #  9
+    r"kSortScanSplits\s+([0-9.eE+-]+)s\s+"             # 10
+    r"kSortInitBuckets\s+([0-9.eE+-]+)s\s+"             # 11
+    r"kSortFillBuckets\s+([0-9.eE+-]+)s\s+"             # 12
+    r"kSortFinalizeBuckets\s+([0-9.eE+-]+)s\s+"         # 13
+    r"kSortFeatures\s+([0-9.eE+-]+)s\s+"                # 14
+    r"kSortLabels\s+([0-9.eE+-]+)s"                     # 15
 )
 
 # Extended with the 4 histogram phases
@@ -95,10 +100,12 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
                 ComputeEntropy               = float(ce),
                 SelectBestThresholdHistogram = float(sbt),
             ))
-        else:  # sort (default)
+        else:
             (tid, tree, depth, nodes, samples,
              sp, pe, ep,
-             fill, scan) = g
+             fill_example, scan_splits,
+             init_buckets, fill_buckets, finalize_buckets,
+             features, labels) = g
 
             rows.append(dict(
                 thread                       = int(tid),
@@ -109,8 +116,13 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
                 SampleProjection             = float(sp),
                 ProjectionEvaluate           = float(pe),
                 EvaluateProjection           = float(ep),
-                SortFillExampleBucketSet     = float(fill),
-                SortScanSplits               = float(scan),
+                SortFillExampleBucketSet     = float(fill_example),
+                SortScanSplits               = float(scan_splits),
+                SortInitBuckets              = float(init_buckets),
+                SortFillBuckets              = float(fill_buckets),
+                SortFinalizeBuckets          = float(finalize_buckets),
+                SortFeatures                 = float(features),
+                SortLabels                   = float(labels),
             ))
 
     if not rows:

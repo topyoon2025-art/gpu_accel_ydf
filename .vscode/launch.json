@@ -23,7 +23,7 @@
         "--cols=512",
         "--num_trees=1",
         "--num_threads=-1",
-        "--numerical_split_type=Equal Width"
+        // "--numerical_split_type=Equal Width"
         // "--compute_oob_performances=false"
       ],
       "stopAtEntry": false,

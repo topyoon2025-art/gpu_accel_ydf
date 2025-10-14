@@ -632,24 +632,28 @@ void FillExampleBucketSet(
 
 
   /* #region Allocate the buckets | takes practically 0 time */
+  {
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSortInitBuckets);
+    // Init. takes practically 0 time - time logic removed
+    // Allocate the buckets.
+    example_bucket_set->items.resize(feature_filler.NumBuckets());
 
-  // Init. takes practically 0 time - time logic removed
-  // Allocate the buckets.
-  example_bucket_set->items.resize(feature_filler.NumBuckets());
-
-  // Initialize and Zero the buckets.
-  // Initially n_buckets = n. samples in bag
-  // Ariel: also practically takes 0 time. prints removed
-  int bucket_idx = 0;
-  for (auto& bucket : example_bucket_set->items) {
-    feature_filler.InitializeAndZero(bucket_idx, &bucket.feature);
-    label_filler.InitializeAndZero(&bucket.label);
-    bucket_idx++;
+    // Initialize and Zero the buckets.
+    // Initially n_buckets = n. samples in bag
+    // Ariel: also practically takes 0 time. prints removed
+    int bucket_idx = 0;
+    for (auto& bucket : example_bucket_set->items) {
+      feature_filler.InitializeAndZero(bucket_idx, &bucket.feature);
+      label_filler.InitializeAndZero(&bucket.label);
+      bucket_idx++;
+    }
   }
 
   /* #endregion */
 
   // Fill the buckets. Also takes practically 0 time
+  {
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSortFillBuckets);
   for (size_t select_idx = 0; select_idx < selected_examples.size(); select_idx++) {
     // Ariel TODO is example_idx always = select_idx?
     const UnsignedExampleIdx example_idx = selected_examples[select_idx];
@@ -663,11 +667,14 @@ void FillExampleBucketSet(
     feature_filler.ConsumeExample(example_idx, &bucket.feature);
     label_filler.ConsumeExample(example_idx, &bucket.label);
   }
+  }
 
-  // Finalize the buckets.
-  // Takes essentially 0 time
+  // Finalize the buckets. Takes essentially 0 time
+  {
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSortFinalizeBuckets);
   for (auto& bucket : example_bucket_set->items) {
     label_filler.Finalize(&bucket.label);
+  }
   }
 
   static_assert(!(ExampleBucketSet::FeatureBucketType::kRequireSorting &&
@@ -676,15 +683,19 @@ void FillExampleBucketSet(
 
   //  Sort the buckets.
   if constexpr (ExampleBucketSet::FeatureBucketType::kRequireSorting) {
+    {
+      CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSortFeatures);
     // Ariel: Sorting done here!
     std::sort(example_bucket_set->items.begin(),
               example_bucket_set->items.end(),
               typename ExampleBucketSet::ExampleBucketType::SortFeature());
+    }
   }
 
   // Time whole function in parent instead. Sort takes ~98% of this fn
 
   if constexpr (require_label_sorting) {
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSortLabels);
     std::sort(example_bucket_set->items.begin(),
               example_bucket_set->items.end(),
               typename ExampleBucketSet::ExampleBucketType::SortLabel());
