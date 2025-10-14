@@ -1015,10 +1015,14 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                       << " SampleProj " << arr[kSampleProjection]   * 1e-9 << "s"
                       << " ProjEval "   << arr[kProjectionEvaluate] * 1e-9 << "s"
                       << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s"
+                      << " kFindSplitHistogram " << arr[kFindSplitHistogram]   * 1e-9 << "s"
                       << " kFindMinMaxHistogram " << arr[kFindMinMaxHistogram]   * 1e-9 << "s"
                       << " kGenHistogramBins " << arr[kGenHistogramBins]   * 1e-9 << "s"
+                      << " kHistogramSetNumClasses " << arr[kHistogramSetNumClasses]   * 1e-9 << "s"
                       << " kAssignSamplesToHistogram " << arr[kAssignSamplesToHistogram]   * 1e-9 << "s"
-                      << " kFinalizeHistogram " << arr[kFinalizeHistogram]   * 1e-9 << "s";
+                      << " kUpdateDistributionsHistogram " << arr[kUpdateDistributionsHistogram]   * 1e-9 << "s"
+                      << " kSelectBestThresholdHistogram " << arr[kSelectBestThresholdHistogram]   * 1e-9 << "s"
+                      ;
             }
           }
         }

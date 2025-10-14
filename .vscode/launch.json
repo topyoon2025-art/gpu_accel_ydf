@@ -19,10 +19,11 @@
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
       "args": [
         "--input_mode=trunk",
-        "--rows=10000",
+        "--rows=5000",
         "--cols=512",
-        "--num_trees=10",
-        "--num_threads=-1"
+        "--num_trees=1",
+        "--num_threads=-1",
+        "--numerical_split_type=Equal Width"
         // "--compute_oob_performances=false"
       ],
       "stopAtEntry": false,

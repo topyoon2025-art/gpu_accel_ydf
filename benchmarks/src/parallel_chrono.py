@@ -51,26 +51,19 @@ TIMING_RX_HISTO = re.compile(
     r"SampleProj\s+([0-9.eE+-]+)s\s+"
     r"ProjEval\s+([0-9.eE+-]+)s\s+"
     r"EvalProj\s+([0-9.eE+-]+)s\s+"
+    r"kFindSplitHistogram\s+([0-9.eE+-]+)s\s+"
     r"kFindMinMaxHistogram\s+([0-9.eE+-]+)s\s+"
     r"kGenHistogramBins\s+([0-9.eE+-]+)s\s+"
+    r"kHistogramSetNumClasses\s+([0-9.eE+-]+)s\s+"
     r"kAssignSamplesToHistogram\s+([0-9.eE+-]+)s\s+"
-    r"kFinalizeHistogram\s+([0-9.eE+-]+)s"
+    r"kUpdateDistributionsHistogram\s+([0-9.eE+-]+)s\s+"
+    r"kSelectBestThresholdHistogram\s+([0-9.eE+-]+)s"
 )
 
 
 def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
-    """
-    Parse the per-depth “parallel-chrono” lines.
-
-    Default expectation  : sort variant
-        SampleProj … EvalProj … kSortFillExampleBucketSet … kSortScanSplits
-
-    Alternate detection  : histogram variant (if kGenHistogramBins is present)
-        SampleProj … EvalProj … kFindMinMaxHistogram … kFinalizeHistogram
-    """
-
-    # Decide which regex to use
-    histo_mode = "kGenHistogramBins" in raw_log
+    # decide which syntax to use  (sort is default, histogram if marker present)
+    histo_mode = "kSelectBestThresholdHistogram" in raw_log
     rx = TIMING_RX_HISTO if histo_mode else TIMING_RX_SORT
 
     rows = []
@@ -80,21 +73,24 @@ def parse_parallel_chrono(raw_log: str) -> pd.DataFrame:
         if histo_mode:
             (tid, tree, depth, nodes, samples,
              sp, pe, ep,
-             fmm, ghb, ast, fh) = g
+             fsh, fmm, ghb, hsnc, ast, udh, sbt) = g
 
             rows.append(dict(
-                thread                = int(tid),
-                tree                  = int(tree),
-                depth                 = int(depth),
-                nodes                 = int(nodes),
-                samples               = int(samples),
-                SampleProjection      = float(sp),
-                ProjectionEvaluate    = float(pe),
-                EvaluateProjection    = float(ep),
-                FindMinMaxHistogram   = float(fmm),
-                GenHistogramBins      = float(ghb),
-                AssignSamplesToHist   = float(ast),
-                FinalizeHistogram     = float(fh),
+                thread                       = int(tid),
+                tree                         = int(tree),
+                depth                        = int(depth),
+                nodes                        = int(nodes),
+                samples                      = int(samples),
+                SampleProjection             = float(sp),
+                ProjectionEvaluate           = float(pe),
+                EvaluateProjection           = float(ep),
+                FindSplitHistogram           = float(fsh),
+                FindMinMaxHistogram          = float(fmm),
+                GenHistogramBins             = float(ghb),
+                HistogramSetNumClasses       = float(hsnc),
+                AssignSamplesToHist          = float(ast),
+                UpdateDistributionsHistogram = float(udh),
+                SelectBestThresholdHistogram = float(sbt),
             ))
         else:  # sort (default)
             (tid, tree, depth, nodes, samples,

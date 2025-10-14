@@ -10,10 +10,13 @@ enum FuncId {
   kEvaluateProjection,
   kSortFillExampleBucketSet,
   kSortScanSplits,
+  kFindSplitHistogram,
   kFindMinMaxHistogram,
   kGenHistogramBins,
+  kHistogramSetNumClasses,
   kAssignSamplesToHistogram,
-  kFinalizeHistogram,
+  kUpdateDistributionsHistogram,
+  kSelectBestThresholdHistogram,
   kNumFuncs
 };
 

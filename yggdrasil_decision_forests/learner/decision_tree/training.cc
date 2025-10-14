@@ -2272,12 +2272,11 @@ const int32_t attribute_idx, utils::RandomEngine *random,
       proto::NodeCondition *condition
     )
 {
-/* #region Checks */
+  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kFindSplitHistogram);
+
+  /* #region Checks */
 DCHECK(condition != nullptr);
-if (!weights.empty())
-{
-DCHECK_EQ(weights.size(), labels.size());
-}
+if (!weights.empty()) { DCHECK_EQ(weights.size(), labels.size()); }
 
 if (dt_config.missing_value_policy() ==
     proto::DecisionTreeTrainingConfig::LOCAL_IMPUTATION)
@@ -2323,6 +2322,8 @@ ASSIGN_OR_RETURN(
 std::vector<CandidateSplit> candidate_splits(bins.size());
 for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
 {
+  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kHistogramSetNumClasses);
+
   auto &candidate_split = candidate_splits[split_idx];
   candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
   candidate_split.threshold = bins[split_idx];
@@ -2332,10 +2333,6 @@ for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++)
 const bool use_equal_width_fast_path =
 (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) && FAST_EQUAL_WIDTH_BINNING;
 
-// double total_assign_variables_time = 0;
-// double isnan_time = 0;
-// double upper_bound_time = 0;
-// double closing_statements_time = 0;
 // Compute the split score of each threshold.
 // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
 for (const auto example_idx : selected_examples) {
@@ -2345,19 +2342,9 @@ for (const auto example_idx : selected_examples) {
   const int32_t label = labels[example_idx];
   const float weight = weights.empty() ? 1.f : weights[example_idx];
   float attribute = attributes[example_idx];
-
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // total_assign_variables_time += duration.count();
-  // start = std::chrono::high_resolution_clock::now();
-  
+ 
   if (std::isnan(attribute)) { attribute = na_replacement; }
-
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // isnan_time += duration.count();
-  // start = std::chrono::high_resolution_clock::now();
-  
+ 
   // Return 1st element of candidate_splits > attribute
   if (use_equal_width_fast_path) {
     const int idx = EqualWidthThresholdIndex(
@@ -2389,36 +2376,18 @@ for (const auto example_idx : selected_examples) {
   auto it_split = std::upper_bound(
   candidate_splits.begin(), candidate_splits.end(), attribute,
   [](const float a, const CandidateSplit& b) { return a < b.threshold; });
-
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // upper_bound_time += duration.count();
-  // start = std::chrono::high_resolution_clock::now();
   
   if (it_split == candidate_splits.begin()) { continue; }
 
   --it_split;
   it_split->num_positive_examples_without_weights++;
   it_split->pos_label_distribution.Add(label, weight);
-
-  // end = std::chrono::high_resolution_clock::now();
-  // duration = std::chrono::duration<double>(end - start);
-  // closing_statements_time += duration.count();
 }}
-
-// std::cout << "Assigning Variables: " << total_assign_variables_time << std::endl;
-// std::cout << "isNan: " << isnan_time << std::endl;
-// std::cout << "Upper Bound: " << upper_bound_time << std::endl;
-// std::cout << "Closing Statements: " << closing_statements_time << std::endl << std::endl;
-// start = std::chrono::high_resolution_clock::now();
-// end = std::chrono::high_resolution_clock::now();
-// duration = std::chrono::duration<double>(end - start);
-// std::cout << "Measuring cost is about: " << duration.count() * selected_examples.size() << std::endl;// << std::endl << std::endl;
 
 for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
 {
   CHRONO_SCOPE(
-      ::yggdrasil_decision_forests::chrono_prof::kFinalizeHistogram);
+      ::yggdrasil_decision_forests::chrono_prof::kUpdateDistributionsHistogram);
 
   const auto &src = candidate_splits[split_idx + 1];
   auto &dst = candidate_splits[split_idx];
@@ -2437,6 +2406,7 @@ confusion.SetNumClassesIntDim(num_label_classes);
 bool found_split = false;
 for (auto &candidate_split : candidate_splits)
 {
+  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSelectBestThresholdHistogram);
   if (selected_examples.size() -
               candidate_split.num_positive_examples_without_weights <
           min_num_obs ||
