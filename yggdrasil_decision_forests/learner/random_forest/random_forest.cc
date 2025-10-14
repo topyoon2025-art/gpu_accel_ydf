@@ -1016,11 +1016,13 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                       << " ProjEval "   << arr[kProjectionEvaluate] * 1e-9 << "s"
                       << " EvalProj "   << arr[kEvaluateProjection] * 1e-9 << "s"
                       << " kFindSplitHistogram " << arr[kFindSplitHistogram]   * 1e-9 << "s"
+                      << " kChecksHistogram " << arr[kChecksHistogram]   * 1e-9 << "s"
                       << " kFindMinMaxHistogram " << arr[kFindMinMaxHistogram]   * 1e-9 << "s"
                       << " kGenHistogramBins " << arr[kGenHistogramBins]   * 1e-9 << "s"
                       << " kHistogramSetNumClasses " << arr[kHistogramSetNumClasses]   * 1e-9 << "s"
                       << " kAssignSamplesToHistogram " << arr[kAssignSamplesToHistogram]   * 1e-9 << "s"
                       << " kUpdateDistributionsHistogram " << arr[kUpdateDistributionsHistogram]   * 1e-9 << "s"
+                      << " kComputeEntropy " << arr[kComputeEntropy]   * 1e-9 << "s"
                       << " kSelectBestThresholdHistogram " << arr[kSelectBestThresholdHistogram]   * 1e-9 << "s"
                       ;
             }

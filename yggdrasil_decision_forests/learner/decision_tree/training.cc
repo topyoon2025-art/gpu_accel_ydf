@@ -2275,6 +2275,8 @@ const int32_t attribute_idx, utils::RandomEngine *random,
   CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kFindSplitHistogram);
 
   /* #region Checks */
+  {
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kChecksHistogram);
 DCHECK(condition != nullptr);
 if (!weights.empty()) { DCHECK_EQ(weights.size(), labels.size()); }
 
@@ -2284,6 +2286,7 @@ if (dt_config.missing_value_policy() ==
   LocalImputationForNumericalAttribute(selected_examples, weights, attributes,
                                        &na_replacement);
 }
+  }
     /* #endregion */
 
 // Determine the minimum and maximum values of the attribute
@@ -2384,8 +2387,7 @@ for (const auto example_idx : selected_examples) {
   it_split->pos_label_distribution.Add(label, weight);
 }}
 
-for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
-{
+for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--) {
   CHRONO_SCOPE(
       ::yggdrasil_decision_forests::chrono_prof::kUpdateDistributionsHistogram);
 
@@ -2398,9 +2400,14 @@ for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--)
 
 
 /* #region Finalization - takes no time */
-const double initial_entropy = label_distribution.Entropy();
+double initial_entropy;
 utils::BinaryToIntegerConfusionMatrixDouble confusion;
-confusion.SetNumClassesIntDim(num_label_classes);
+
+{
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kComputeEntropy);
+  initial_entropy = label_distribution.Entropy();
+  confusion.SetNumClassesIntDim(num_label_classes);
+}
 
 // Select the best threshold.
 bool found_split = false;

@@ -11,11 +11,13 @@ enum FuncId {
   kSortFillExampleBucketSet,
   kSortScanSplits,
   kFindSplitHistogram,
+  kChecksHistogram,
   kFindMinMaxHistogram,
   kGenHistogramBins,
   kHistogramSetNumClasses,
   kAssignSamplesToHistogram,
   kUpdateDistributionsHistogram,
+  kComputeEntropy,
   kSelectBestThresholdHistogram,
   kNumFuncs
 };
