@@ -260,14 +260,16 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         if (current_projection.empty()) continue;
       }
 
+      float min_value, max_value;
+
       RETURN_IF_ERROR( // ApplyProjection
-        projection_evaluator.Evaluate(current_projection, selected_examples, &projection_values)
+        projection_evaluator.Evaluate(current_projection, selected_examples, &projection_values, &min_value, &max_value)
       );
 
       ASSIGN_OR_RETURN(
           const auto split_result,
           EvaluateProjection(new_dt_config, label_stats, dense_example_idxs, selected_weights,
-                            selected_labels, projection_values, internal_config,
+                            selected_labels, projection_values, &min_value, &max_value, internal_config,
                             current_projection.front().attribute_idx,
                             constraints, monotonic,
                             best_condition, cache, random// random needed for Histogramming
@@ -324,6 +326,8 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
     const absl::Span<const UnsignedExampleIdx> dense_example_idxs,
     const std::vector<float>& selected_weights, const Labels& selected_labels,
     const absl::Span<const float> projection_values,
+    const float* min_value,
+    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -368,7 +372,7 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
       ASSIGN_OR_RETURN(
           result,
           FindSplitLabelClassificationFeatureNumericalHistogram(
-              dense_example_idxs, selected_weights, projection_values,
+              dense_example_idxs, selected_weights, projection_values, min_value, max_value,
               selected_labels, label_stats.num_label_classes, na_replacement,
               min_num_obs, dt_config, label_stats.label_distribution,
               first_attribute_idx, random, condition));
@@ -441,6 +445,8 @@ EvaluateProjection<ClassificationLabelStats, std::vector<int32_t>>(
     const std::vector<float>& selected_weights,
     const std::vector<int32_t>& selected_labels,
     const absl::Span<const float> projection_values,
+    const float* min_value,
+    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -454,6 +460,8 @@ EvaluateProjection<RegressionLabelStats, std::vector<float>>(
     const std::vector<float>& selected_weights,
     const std::vector<float>& selected_labels,
     const absl::Span<const float> projection_values,
+    const float* min_value,
+    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -467,6 +475,8 @@ EvaluateProjection<RegressionHessianLabelStats, GradientAndHessian>(
     const std::vector<float>& selected_weights,
     const GradientAndHessian& selected_labels,
     const absl::Span<const float> projection_values,
+    const float* min_value,
+    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -488,7 +498,7 @@ absl::Status EvaluateProjectionAndSetCondition(
   ASSIGN_OR_RETURN(
       const auto result,
       EvaluateProjection(dt_config, label_stats, dense_example_idxs,
-                         selected_weights, selected_labels, projection_values,
+                         selected_weights, selected_labels, projection_values, nullptr, nullptr,
                          internal_config, first_attribute_idx,
                          /*constraints=*/{}, /*monotonic_direction=*/0,
                          condition, cache, random));
@@ -620,7 +630,7 @@ absl::Status EvaluateMHLDCandidates(
 
       // Compute projection
       RETURN_IF_ERROR(projection_evaluator.Evaluate(
-          projection, selected_examples, &projection_values));
+          projection, selected_examples, &projection_values, nullptr, nullptr));
 
       // Evaluate projection quality
       RETURN_IF_ERROR(EvaluateProjectionAndSetCondition(
@@ -1225,46 +1235,61 @@ ProjectionEvaluator::ProjectionEvaluator(
 absl::Status ProjectionEvaluator::Evaluate(
     const Projection& projection,
     const absl::Span<const UnsignedExampleIdx> selected_examples,
-    std::vector<float>* values) const {
+    std::vector<float>* values,
+    /* NEW */ float* min_value,
+    /* NEW */ float* max_value) const {
   RETURN_IF_ERROR(constructor_status_);
+
   values->resize(selected_examples.size());
   CHRONO_SCOPE(
-    ::yggdrasil_decision_forests::chrono_prof::kProjectionEvaluate);
+      ::yggdrasil_decision_forests::chrono_prof::kProjectionEvaluate);
 
-  // TODO make these loops in a vector operation
-  // TODO start w/ full dataE
+  // When the caller wants min/max we will keep them up-to-date on the fly.
+  bool track_minmax = (min_value != nullptr && max_value != nullptr);
+  float local_min   = 0.f;
+  float local_max   = 0.f;
+  bool  first_seen  = true;
 
-  // TODO Ariel PRIORITY: Show selected_idx and examples_idx - type, domain
-  //    Maybe plot selected_examples as a mask
-  //    selected_examples should be length n at first iteration, then ~n/2, n/4 ...
+  for (size_t selected_idx = 0; selected_idx < selected_examples.size();
+       ++selected_idx) {
 
-  // Ariel UPDATE: This consumes <5% of runtime - skip
-
-  // What is this - should be bag indices
-  // Optimization experiment: do this as a vector , then mask out the rows out of bag - values = bag_mask(A+B)
-  for (size_t selected_idx = 0; selected_idx < selected_examples.size(); selected_idx++) {
-    float value = 0;
-    // Ariel this is samples
+    float value = 0.f;
     const auto example_idx = selected_examples[selected_idx];
 
-    // Ariel: This is one-per-nonzero in projection vector - optimal
     for (const auto& item : projection) {
-      // Sanity checks
-      DCHECK_LT(item.attribute_idx, numerical_attributes_.size());
       DCHECK_GE(item.attribute_idx, 0);
+      DCHECK_LT(item.attribute_idx, numerical_attributes_.size());
 
-      // TODO Ariel: Move the indirection outside of the loop.
       const auto* attribute_values = numerical_attributes_[item.attribute_idx];
-
       DCHECK(attribute_values != nullptr);
 
       float attribute_value = (*attribute_values)[example_idx];
       if (std::isnan(attribute_value)) {
         attribute_value = na_replacement_value_[item.attribute_idx];
       }
-      value += attribute_value * item.weight; // e.g. x1 - x2 + x3
+      value += attribute_value * item.weight;
     }
+
     (*values)[selected_idx] = value;
+
+    // Update min / max in the same pass if requested.
+    if (track_minmax) {
+      if (first_seen) {
+        local_min = local_max = value;
+        first_seen = false;
+      } else {
+        if (value < local_min) local_min = value;
+        if (value > local_max) local_max = value;
+      }
+    }
+  }
+
+  if (track_minmax) {
+    // If no (finite) value was ever seen we leave the outputs untouched.
+    if (!first_seen) {
+      *min_value = local_min;
+      *max_value = local_max;
+    }
   }
   return absl::OkStatus();
 }

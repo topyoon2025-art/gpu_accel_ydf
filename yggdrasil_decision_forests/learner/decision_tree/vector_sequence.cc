@@ -77,7 +77,7 @@ absl::Status TryCloserThanCondition(
     ASSIGN_OR_RETURN(
         const auto local_result_flag,
         EvaluateProjection(dt_config, label_stats, dense_example_idxs,
-                           selected_weights, selected_labels, local_projection,
+                           selected_weights, selected_labels, local_projection, nullptr, nullptr,
                            internal_config, attribute_idx, {}, 0, condition,
                            cache, random));
 
@@ -136,7 +136,7 @@ absl::Status TryProjectedMoreThanCondition(
     ASSIGN_OR_RETURN(
         const auto local_result_flag,
         EvaluateProjection(dt_config, label_stats, dense_example_idxs,
-                           selected_weights, selected_labels, local_projection,
+                           selected_weights, selected_labels, local_projection, nullptr, nullptr,
                            internal_config, attribute_idx, {}, 0, condition,
                            cache, random));
 

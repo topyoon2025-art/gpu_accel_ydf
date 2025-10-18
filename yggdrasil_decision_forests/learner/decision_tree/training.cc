@@ -525,7 +525,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
       {
         ASSIGN_OR_RETURN(
             result, FindSplitLabelClassificationFeatureNumericalHistogram(
-                        selected_examples, weights, attribute_data->values(),
+                        selected_examples, weights, attribute_data->values(), nullptr, nullptr,
                         label_stats.label_data, label_stats.num_label_classes,
                         na_replacement, min_num_obs, dt_config,
                         label_stats.label_distribution, attribute_idx, random,
@@ -2264,6 +2264,8 @@ absl::StatusOr<SplitSearchResult>
 FindSplitLabelClassificationFeatureNumericalHistogram(
 const absl::Span<const UnsignedExampleIdx> selected_examples,
 const std::vector<float> &weights, const absl::Span<const float> attributes,
+const float* min_value,
+const float* max_value,
 const std::vector<int32_t> &labels, const int32_t num_label_classes,
 float na_replacement, const UnsignedExampleIdx min_num_obs,
 const proto::DecisionTreeTrainingConfig &dt_config,
@@ -2291,14 +2293,14 @@ if (dt_config.missing_value_policy() ==
 
 // Determine the minimum and maximum values of the attribute
 // TODO How expensive is this? Why not get it for free from ApplyProjection()?
-float min_value, max_value;
+// float min_value, max_value;
 
 // Takes ~7% of runtime. Can be eliminated by retrieving max from ApplyProjection()
-if (!MinMaxNumericalAttribute(selected_examples, attributes, &min_value,
-                              &max_value))
-{ return SplitSearchResult::kInvalidAttribute; }
+// if (!MinMaxNumericalAttribute(selected_examples, attributes, &min_value,
+//                               &max_value))
+// { return SplitSearchResult::kInvalidAttribute; }
 // There should be at least two different unique values.
-if (min_value == max_value) { return SplitSearchResult::kInvalidAttribute; }
+if (*min_value == *max_value) { return SplitSearchResult::kInvalidAttribute; }
 
 
 struct CandidateSplit
@@ -2319,7 +2321,7 @@ ASSIGN_OR_RETURN(
     bins,
         internal::GenHistogramBins(dt_config.numerical_split().type(),
                                   dt_config.numerical_split().num_candidates(),
-                                  attributes, min_value, max_value, random));
+                                  attributes, *min_value, *max_value, random));
 
 
 std::vector<CandidateSplit> candidate_splits(bins.size());
@@ -2351,9 +2353,9 @@ const bool use_equal_width_fast_path =
     // Return 1st element of candidate_splits > attribute
     
     // TODO Ariel condition this on only Equal Width binning! Testin this for vectorization
-    if constexpr (FAST_EQUAL_WIDTH_BINNING) {
+    if (use_equal_width_fast_path) {
       const int idx = EqualWidthThresholdIndex(
-      attribute, min_value, max_value, candidate_splits.size());
+      attribute, *min_value, *max_value, candidate_splits.size());
       
       // Matches the original behavior when upper_bound(...) == begin()
       if (idx < 0) { continue; }
