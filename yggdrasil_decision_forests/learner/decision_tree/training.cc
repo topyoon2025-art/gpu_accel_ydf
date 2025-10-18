@@ -2343,21 +2343,24 @@ const bool use_equal_width_fast_path =
   for (const auto example_idx : selected_examples) {
     const int32_t label = labels[example_idx];
     const float weight = weights.empty() ? 1.f : weights[example_idx];
-    float attribute = attributes[example_idx];
+    const float attribute = attributes[example_idx];
   
-    if (std::isnan(attribute)) { attribute = na_replacement; }
+    // Ariel - this is done in ApplyProjection for Oblique. TODO replace for non-Oblique
+    // if (std::isnan(attribute)) { attribute = na_replacement; }
   
     // Return 1st element of candidate_splits > attribute
-    if (use_equal_width_fast_path) {
+    
+    // TODO Ariel condition this on only Equal Width binning! Testin this for vectorization
+    if constexpr (FAST_EQUAL_WIDTH_BINNING) {
       const int idx = EqualWidthThresholdIndex(
-      attribute, min_value, max_value, static_cast<int>(candidate_splits.size()));
+      attribute, min_value, max_value, candidate_splits.size());
       
       // Matches the original behavior when upper_bound(...) == begin()
       if (idx < 0) { continue; }
 
       auto& it_split = candidate_splits[idx];
 
-      // Check fast binning choice against std::upper_bound()
+      /* #region Check fast binning choice against std::upper_bound() */
       #ifndef NDEBUG  // ---------- debug-only cross-check -----------------
           auto it_ref = std::upper_bound(
               candidate_splits.begin(), candidate_splits.end(), attribute,
@@ -2370,6 +2373,7 @@ const bool use_equal_width_fast_path =
           DCHECK_EQ(idx, idx_ref)
               << "Fast equal-width binning disagrees with std::upper_bound at " << idx;
       #endif
+      /* #endregion */
 
       it_split.num_positive_examples_without_weights++;
       it_split.pos_label_distribution.Add(label, weight);
