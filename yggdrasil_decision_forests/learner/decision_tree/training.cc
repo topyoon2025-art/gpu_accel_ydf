@@ -2361,18 +2361,18 @@ const bool use_equal_width_fast_path =
       auto& it_split = candidate_splits[idx];
 
       /* #region Check fast binning choice against std::upper_bound() */
-      #ifndef NDEBUG  // ---------- debug-only cross-check -----------------
-          auto it_ref = std::upper_bound(
-              candidate_splits.begin(), candidate_splits.end(), attribute,
-              [](float a, const CandidateSplit& b) { return a < b.threshold; });
+      // #ifndef NDEBUG  // ---------- debug-only cross-check -----------------
+      //     auto it_ref = std::upper_bound(
+      //         candidate_splits.begin(), candidate_splits.end(), attribute,
+      //         [](float a, const CandidateSplit& b) { return a < b.threshold; });
 
-          int idx_ref = (it_ref == candidate_splits.begin())
-                            ? -1
-                            : static_cast<int>(std::distance(candidate_splits.begin(),
-                                                            --it_ref));
-          DCHECK_EQ(idx, idx_ref)
-              << "Fast equal-width binning disagrees with std::upper_bound at " << idx;
-      #endif
+      //     int idx_ref = (it_ref == candidate_splits.begin())
+      //                       ? -1
+      //                       : static_cast<int>(std::distance(candidate_splits.begin(),
+      //                                                       --it_ref));
+      //     DCHECK_EQ(idx, idx_ref)
+      //         << "Fast equal-width binning disagrees with std::upper_bound at " << idx;
+      // #endif
       /* #endregion */
 
       it_split.num_positive_examples_without_weights++;

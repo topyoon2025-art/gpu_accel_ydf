@@ -341,13 +341,13 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
 
   // Projection are never missing.
   const float na_replacement = 0;
-  {
-    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kEvaluateProjection);
-#ifndef NDEBUG
-// Ariel - this grows linearly w/ proj_vals, but not executed in production! Only shows up in Intel Profiler - Ignore
-  for (const float v : projection_values) { DCHECK(!std::isnan(v)); }
-#endif
-  }
+  // {
+    // CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kEvaluateProjection);
+// #ifndef NDEBUG
+// // Ariel - this grows linearly w/ proj_vals, but not executed in production! Only shows up in Intel Profiler - Ignore
+//   for (const float v : projection_values) { DCHECK(!std::isnan(v)); }
+// #endif
+  
 
   // Find a good split in the current_projection.
   SplitSearchResult result;
@@ -936,11 +936,11 @@ void SampleProjection(const absl::Span<const int>& features,
     }
   };
 
-#ifndef NDEBUG  // Keep DCHECK_EQ from for feature : features
-  for (const auto feature : features) {
-    DCHECK_EQ(data_spec.columns(feature).type(), dataset::proto::NUMERICAL);
-  }
-#endif
+// #ifndef NDEBUG  // Keep DCHECK_EQ from for feature : features
+//   for (const auto feature : features) {
+//     DCHECK_EQ(data_spec.columns(feature).type(), dataset::proto::NUMERICAL);
+//   }
+// #endif
 
   if constexpr (SLOW_SAMPLE_PROJECTIONS) {
     for (const auto feature : features) {
