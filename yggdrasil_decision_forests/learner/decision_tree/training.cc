@@ -2339,16 +2339,16 @@ const bool use_equal_width_fast_path =
 
 // Compute the split score of each threshold.
 // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
-{
+{ // Ariel: Costliest loop for first half tree levels
   CHRONO_SCOPE(
       ::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
   for (const auto example_idx : selected_examples) {
     const int32_t label = labels[example_idx];
+    // TODO Ariel create unweighted & unbranched version
     const float weight = weights.empty() ? 1.f : weights[example_idx];
     const float attribute = attributes[example_idx];
   
-    // Ariel - this is done in ApplyProjection for Oblique. TODO replace for non-Oblique
-    // if (std::isnan(attribute)) { attribute = na_replacement; }
+    // Ariel no need for isnan check here - done in ApplyProjection
   
     // Return 1st element of candidate_splits > attribute
     
