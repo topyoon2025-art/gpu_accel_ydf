@@ -345,7 +345,7 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
 
   // Projection are never missing.
   const float na_replacement = 0;
-  {
+  
   // Ariel - don't need to check for isnan here. Was already done in ApplyProjection
   
   // Find a good split in the current_projection.
