@@ -1236,19 +1236,18 @@ absl::Status ProjectionEvaluator::Evaluate(
     const Projection& projection,
     const absl::Span<const UnsignedExampleIdx> selected_examples,
     std::vector<float>* values,
-    /* NEW */ float* min_value,
-    /* NEW */ float* max_value) const {
+    float* min_value,      // nullptr -> caller is not interested
+    float* max_value) const {
+
   RETURN_IF_ERROR(constructor_status_);
 
   values->resize(selected_examples.size());
   CHRONO_SCOPE(
       ::yggdrasil_decision_forests::chrono_prof::kProjectionEvaluate);
 
-  // When the caller wants min/max we will keep them up-to-date on the fly.
-  bool track_minmax = (min_value != nullptr && max_value != nullptr);
-  float local_min   = 0.f;
-  float local_max   = 0.f;
-  bool  first_seen  = true;
+  // Always maintain local extrema; they are updated at near-zero cost.
+  float local_min =  std::numeric_limits<float>::infinity();
+  float local_max = -std::numeric_limits<float>::infinity();
 
   for (size_t selected_idx = 0; selected_idx < selected_examples.size();
        ++selected_idx) {
@@ -1257,12 +1256,7 @@ absl::Status ProjectionEvaluator::Evaluate(
     const auto example_idx = selected_examples[selected_idx];
 
     for (const auto& item : projection) {
-      DCHECK_GE(item.attribute_idx, 0);
-      DCHECK_LT(item.attribute_idx, numerical_attributes_.size());
-
       const auto* attribute_values = numerical_attributes_[item.attribute_idx];
-      DCHECK(attribute_values != nullptr);
-
       float attribute_value = (*attribute_values)[example_idx];
       if (std::isnan(attribute_value)) {
         attribute_value = na_replacement_value_[item.attribute_idx];
@@ -1272,25 +1266,17 @@ absl::Status ProjectionEvaluator::Evaluate(
 
     (*values)[selected_idx] = value;
 
-    // Update min / max in the same pass if requested.
-    if (track_minmax) {
-      if (first_seen) {
-        local_min = local_max = value;
-        first_seen = false;
-      } else {
-        if (value < local_min) local_min = value;
-        if (value > local_max) local_max = value;
-      }
-    }
+    // Single-instruction min/max – no branches, tiny latency.
+    local_min = std::min(local_min, value);
+    local_max = std::max(local_max, value);
   }
 
-  if (track_minmax) {
-    // If no (finite) value was ever seen we leave the outputs untouched.
-    if (!first_seen) {
-      *min_value = local_min;
-      *max_value = local_max;
-    }
+  // Store the results only if the caller asked for them and we saw data.
+  if (!selected_examples.empty()) {
+    if (min_value) *min_value = local_min;
+    if (max_value) *max_value = local_max;
   }
+
   return absl::OkStatus();
 }
 
