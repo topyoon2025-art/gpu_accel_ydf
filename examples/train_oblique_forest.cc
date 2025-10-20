@@ -389,6 +389,12 @@ int main(int argc, char** argv) {
     numerical_split->set_num_candidates(absl::GetFlag(FLAGS_histogram_num_bins));
     std::cout << "Using histogram splitting: Equal Width with " 
               << absl::GetFlag(FLAGS_histogram_num_bins) << " bins\n";
+  } else if (hist_type == "Subsample") {
+    numerical_split->set_type(
+        model::decision_tree::proto::NumericalSplit::SUBSAMPLE);
+    numerical_split->set_num_candidates(absl::GetFlag(FLAGS_histogram_num_bins));
+    std::cout << "Using Subsample splitting with " 
+              << absl::GetFlag(FLAGS_histogram_num_bins) << " samples\n";
   } else {
     std::cerr << "Unknown histogram type: " << hist_type 
               << ". Use 'Exact', 'Random', or 'Equal Width'.\n";

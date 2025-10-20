@@ -950,6 +950,28 @@ bool MaskPureSampledOrPrunedItemsForCategoricalSetGreedySelection(
     std::vector<bool>* candidate_attributes_bitmap,
     utils::RandomEngine* random);
 
+struct CandidateSplit
+{
+  // TODO 1. separate read-only Threshold v. the write (distributions), to not poison the cache (threshold is constant)
+  float threshold;
+  utils::IntegerDistributionDouble pos_label_distribution;
+  int64_t num_positive_examples_without_weights = 0;
+  bool operator<(const CandidateSplit &other) const
+  {
+    return threshold < other.threshold;
+  }
+};
+
+absl::StatusOr<std::vector<CandidateSplit>> SubsampleData(
+    const absl::Span<const UnsignedExampleIdx> selected_examples,
+    const int num_splits,
+    const absl::Span<const float> attributes,
+    const std::vector<float> &weights,
+    const std::vector<int32_t> &labels,
+    const int32_t num_label_classes,
+    utils::RandomEngine *random
+);
+
 // Create the histogram bins (i.e. candidate threshold values) for an histogram
 // based split finding on a numerical attribute.
 absl::StatusOr<std::vector<float>> GenHistogramBins(

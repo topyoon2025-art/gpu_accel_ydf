@@ -33,6 +33,8 @@
 #include <vector>
 #include <cmath>
 
+#include "absl/container/btree_set.h"
+#include "absl/random/random.h"
 #include "absl/base/optimization.h"
 #include "absl/log/log.h"
 #include "absl/memory/memory.h"
@@ -2259,6 +2261,8 @@ const int   num_splits) {
   return idx;
 }
 
+
+
   // Ariel - this is used for approx. splits
 absl::StatusOr<SplitSearchResult>
 FindSplitLabelClassificationFeatureNumericalHistogram(
@@ -2294,7 +2298,6 @@ if (dt_config.missing_value_policy() ==
 // Determine the minimum and maximum values of the attribute
 // TODO How expensive is this? Why not get it for free from ApplyProjection()?
 // float min_value, max_value;
-
 // Takes ~7% of runtime. Can be eliminated by retrieving max from ApplyProjection()
 // if (!MinMaxNumericalAttribute(selected_examples, attributes, &min_value,
 //                               &max_value))
@@ -2303,52 +2306,44 @@ if (dt_config.missing_value_policy() ==
 if (*min_value == *max_value) { return SplitSearchResult::kInvalidAttribute; }
 
 
-struct CandidateSplit
-{
-  // TODO 1. separate read-only Threshold v. the write (distributions), to not poison the cache (threshold is constant)
-  float threshold;
-  utils::IntegerDistributionDouble pos_label_distribution;
-  int64_t num_positive_examples_without_weights = 0;
-  bool operator<(const CandidateSplit &other) const
-  {
-    return threshold < other.threshold;
-  }
-};
+
 
 std::vector<float> bins;
-// Randomly select some threshold values
+std::vector<size_t> subsampled_idx;
+std::vector<internal::CandidateSplit> candidate_splits(dt_config.numerical_split().num_candidates());
+
+if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE) {
 ASSIGN_OR_RETURN(
     bins,
-        internal::GenHistogramBins(dt_config.numerical_split().type(),
+        internal::GenHistogramBins(
+          dt_config.numerical_split().type(),
                                   dt_config.numerical_split().num_candidates(),
-                                  attributes, *min_value, *max_value, random));
-
-
-std::vector<CandidateSplit> candidate_splits(bins.size());
-{
+                                  attributes, *min_value, *max_value, random
+        ));
+    
+    
+    {
   CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kHistogramSetNumClasses);
   for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++) {
     auto &candidate_split = candidate_splits[split_idx];
     candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
     candidate_split.threshold = bins[split_idx];
   }
-}
 
-const bool use_equal_width_fast_path =
+    const bool use_equal_width_fast_path =
 (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) && FAST_EQUAL_WIDTH_BINNING;
-
 // Compute the split score of each threshold.
 // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
-{
+{ // Ariel: Costliest loop for first half tree levels
   CHRONO_SCOPE(
       ::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
   for (const auto example_idx : selected_examples) {
     const int32_t label = labels[example_idx];
+    // TODO Ariel create unweighted & unbranched version
     const float weight = weights.empty() ? 1.f : weights[example_idx];
     const float attribute = attributes[example_idx];
   
-    // Ariel - this is done in ApplyProjection for Oblique. TODO replace for non-Oblique
-    // if (std::isnan(attribute)) { attribute = na_replacement; }
+    // Ariel no need for isnan check here - done in ApplyProjection
   
     // Return 1st element of candidate_splits > attribute
     
@@ -2366,7 +2361,7 @@ const bool use_equal_width_fast_path =
       #ifndef NDEBUG  // ---------- debug-only cross-check -----------------
           auto it_ref = std::upper_bound(
               candidate_splits.begin(), candidate_splits.end(), attribute,
-              [](float a, const CandidateSplit& b) { return a < b.threshold; });
+              [](float a, const internal::CandidateSplit& b) { return a < b.threshold; });
 
           int idx_ref = (it_ref == candidate_splits.begin())
                             ? -1
@@ -2383,7 +2378,7 @@ const bool use_equal_width_fast_path =
     // Existing path for random (or other) threshold types
     auto it_split = std::upper_bound(
     candidate_splits.begin(), candidate_splits.end(), attribute,
-    [](const float a, const CandidateSplit& b) { return a < b.threshold; });
+    [](const float a, const internal::CandidateSplit& b) { return a < b.threshold; });
     
     if (it_split == candidate_splits.begin()) { continue; }
 
@@ -2391,6 +2386,21 @@ const bool use_equal_width_fast_path =
     it_split->num_positive_examples_without_weights++;
     it_split->pos_label_distribution.Add(label, weight);
   }}
+}
+}}
+else {
+  // Subsample data and use only those points as "bins"
+  ASSIGN_OR_RETURN(
+    candidate_splits, // Select some threshold values
+        internal::SubsampleData(
+          selected_examples,
+          dt_config.numerical_split().num_candidates(),
+          attributes,
+          weights,
+          labels,
+          num_label_classes,
+          random
+        ));
 }
 
 {
@@ -5560,6 +5570,51 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         }
       }
       return valid_items > 0;
+    }
+
+    // Can't make vector<CandidateSplit> bcs. CandidateSplit is not defined in .h
+    absl::StatusOr<std::vector<CandidateSplit>> SubsampleData(
+      const absl::Span<const UnsignedExampleIdx> selected_examples,
+      const int num_splits,
+      const absl::Span<const float> attributes,
+      const std::vector<float> &weights,
+      const std::vector<int32_t> &labels,
+      const int32_t num_label_classes,
+      utils::RandomEngine *random
+    ) {
+      CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kGenHistogramBins);
+      STATUS_CHECK_GE(num_splits, 0);
+
+      std::vector<CandidateSplit> candidate_splits(num_splits);
+
+      absl::btree_set<size_t> picked_idx;
+      // Floyds - select n_bins items uniformly at random from s
+      for (size_t j = selected_examples.size() - num_splits; j < selected_examples.size(); ++j) {
+          size_t t = absl::Uniform<size_t>(*random, 0, j + 1);
+          if (!picked_idx.insert(t).second) picked_idx.insert(j);
+      }
+
+      // Populate "histograms" with 1 sample per bin
+      size_t i = 0;
+      for (size_t local_idx : picked_idx) {
+        const UnsignedExampleIdx ex = selected_examples[local_idx];
+
+        CandidateSplit cs;
+        cs.threshold = attributes[ex];
+        cs.num_positive_examples_without_weights = 1;
+
+        cs.pos_label_distribution.SetNumClasses(num_label_classes);
+        const float w = weights.empty() ? 1.f : weights[ex];
+        cs.pos_label_distribution.Add(labels[ex], w);
+
+        candidate_splits[i] = cs;
+
+        i++;
+      }
+      
+      std::sort(candidate_splits.begin(), candidate_splits.end());
+      
+      return candidate_splits;
     }
 
     absl::StatusOr<std::vector<float>> GenHistogramBins(

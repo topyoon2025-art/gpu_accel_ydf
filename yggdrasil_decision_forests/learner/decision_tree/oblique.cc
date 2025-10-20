@@ -1244,10 +1244,13 @@ absl::Status ProjectionEvaluator::Evaluate(
   float local_min =  std::numeric_limits<float>::infinity();
   float local_max = -std::numeric_limits<float>::infinity();
 
+  // 0,1,2,3,4...
   for (size_t selected_idx = 0; selected_idx < selected_examples.size();
        ++selected_idx) {
 
     float value = 0.f;
+
+    // 0,2,2,5
     const auto example_idx = selected_examples[selected_idx];
 
     for (const auto& item : projection) {

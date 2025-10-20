@@ -495,7 +495,9 @@ message NumericalSplit {
     // min and max value.
     HISTOGRAM_EQUAL_WIDTH = 2;
 
-    reserved 3;
+    SUBSAMPLE = 3;
+
+    reserved 4;
   }
 
   optional Type type = 1 [default = EXACT];
