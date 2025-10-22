@@ -23,7 +23,7 @@
         "--cols=512",
         "--num_trees=1",
         "--num_threads=-1",
-        // "--numerical_split_type=Equal Width"
+        "--numerical_split_type=Subsample"
         // "--compute_oob_performances=false"
       ],
       "stopAtEntry": false,
@@ -113,6 +113,37 @@
         "csv",
         "--num_trees",
         "1"
+      ],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        },
+        {
+          "description": "Set Disassembly Flavor to Intel",
+          "text": "-gdb-set disassembly-flavor intel",
+          "ignoreFailures": true
+        }
+      ]
+    },
+        {
+      "name": "Oblique Subsampling on MIGHT",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
+      "args": [
+        "--input_mode",
+        "csv",
+        "--num_trees",
+        "1",
+        "--numerical_split_type",
+        "Subsample"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",

@@ -2387,7 +2387,20 @@ ASSIGN_OR_RETURN(
     it_split->pos_label_distribution.Add(label, weight);
   }}
 }
-}}
+}
+
+{
+  CHRONO_SCOPE(
+      ::yggdrasil_decision_forests::chrono_prof::kUpdateDistributionsHistogram);
+  for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--) {
+    const auto &src = candidate_splits[split_idx + 1];
+    auto &dst = candidate_splits[split_idx];
+    dst.num_positive_examples_without_weights +=
+        src.num_positive_examples_without_weights;
+    dst.pos_label_distribution.Add(src.pos_label_distribution);
+  }
+}
+}
 else {
   // Subsample data and use only those points as "bins"
   ASSIGN_OR_RETURN(
@@ -2401,18 +2414,6 @@ else {
           num_label_classes,
           random
         ));
-}
-
-{
-  CHRONO_SCOPE(
-      ::yggdrasil_decision_forests::chrono_prof::kUpdateDistributionsHistogram);
-  for (int split_idx = candidate_splits.size() - 2; split_idx >= 0; split_idx--) {
-    const auto &src = candidate_splits[split_idx + 1];
-    auto &dst = candidate_splits[split_idx];
-    dst.num_positive_examples_without_weights +=
-        src.num_positive_examples_without_weights;
-    dst.pos_label_distribution.Add(src.pos_label_distribution);
-  }
 }
 
 
@@ -5585,34 +5586,44 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kGenHistogramBins);
       STATUS_CHECK_GE(num_splits, 0);
 
-      std::vector<CandidateSplit> candidate_splits(num_splits);
+      const auto n_points = std::min(static_cast<size_t>(num_splits), selected_examples.size());
 
+      std::vector<CandidateSplit> candidate_splits(n_points);
+
+      // 1. reservoir/Floyd sampling -> indices of the k examples we keep
+      // ------------------------------------------------------------------
       absl::btree_set<size_t> picked_idx;
-      // Floyds - select n_bins items uniformly at random from s
-      for (size_t j = selected_examples.size() - num_splits; j < selected_examples.size(); ++j) {
-          size_t t = absl::Uniform<size_t>(*random, 0, j + 1);
-          if (!picked_idx.insert(t).second) picked_idx.insert(j);
+
+      // Floyd's sampler to select k indices uniformly
+      for (size_t j = selected_examples.size() - n_points; j < selected_examples.size();
+          ++j) {
+      size_t t = absl::Uniform<size_t>(*random, 0, j + 1);
+      if (!picked_idx.insert(t).second) picked_idx.insert(j);
       }
+
+      std::vector<size_t> picked(picked_idx.begin(), picked_idx.end());
+
+      absl::c_sort(picked, [&](size_t a, size_t b) {
+        return attributes[selected_examples[a]] < attributes[selected_examples[b]];
+      });
 
       // Populate "histograms" with 1 sample per bin
-      size_t i = 0;
-      for (size_t local_idx : picked_idx) {
-        const UnsignedExampleIdx ex = selected_examples[local_idx];
-
-        CandidateSplit cs;
-        cs.threshold = attributes[ex];
-        cs.num_positive_examples_without_weights = 1;
-
-        cs.pos_label_distribution.SetNumClasses(num_label_classes);
-        const float w = weights.empty() ? 1.f : weights[ex];
-        cs.pos_label_distribution.Add(labels[ex], w);
-
-        candidate_splits[i] = cs;
-
-        i++;
+      for (int i = 0; i < n_points; ++i) {
+        const auto ex = selected_examples[picked[i]];
+        candidate_splits[i].threshold = attributes[ex];
+        candidate_splits[i].num_positive_examples_without_weights = 1;
+        candidate_splits[i].pos_label_distribution.SetNumClasses(num_label_classes);
+        candidate_splits[i].pos_label_distribution.Add(
+            labels[ex], weights.empty() ? 1.f : weights[ex]);
       }
-      
-      std::sort(candidate_splits.begin(), candidate_splits.end());
+
+      // Now accumulate from right to left so that cand[i] holds the
+      // distribution of all sampled points whose value > cand[i].threshold
+      for (int i = n_points - 2; i >= 0; --i) {
+        candidate_splits[i].num_positive_examples_without_weights +=
+            candidate_splits[i + 1].num_positive_examples_without_weights;
+        candidate_splits[i].pos_label_distribution.Add(candidate_splits[i + 1].pos_label_distribution);
+      }
       
       return candidate_splits;
     }
