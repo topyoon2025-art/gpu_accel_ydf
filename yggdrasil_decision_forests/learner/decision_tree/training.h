@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/btree_set.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -962,6 +963,12 @@ struct CandidateSplit
   }
 };
 
+absl::btree_set<size_t> FloydsSampling(
+      const size_t n_sampled_points,
+      const size_t n_total_points,
+      utils::RandomEngine *random
+);
+
 absl::StatusOr<std::vector<CandidateSplit>> SubsampleData(
     const absl::Span<const UnsignedExampleIdx> selected_examples,
     const int num_splits,
@@ -975,6 +982,7 @@ absl::StatusOr<std::vector<CandidateSplit>> SubsampleData(
 // Create the histogram bins (i.e. candidate threshold values) for an histogram
 // based split finding on a numerical attribute.
 absl::StatusOr<std::vector<float>> GenHistogramBins(
+    const int total_num_samples,
     proto::NumericalSplit::Type type, int num_splits,
     absl::Span<const float> attributes, float min_value, float max_value,
     utils::RandomEngine* random);

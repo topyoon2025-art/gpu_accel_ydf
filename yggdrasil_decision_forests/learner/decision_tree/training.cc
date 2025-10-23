@@ -2312,10 +2312,11 @@ std::vector<float> bins;
 std::vector<size_t> subsampled_idx;
 std::vector<internal::CandidateSplit> candidate_splits(dt_config.numerical_split().num_candidates());
 
-if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE) {
+if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINTS) {
 ASSIGN_OR_RETURN(
     bins,
         internal::GenHistogramBins(
+          selected_examples.size(),
           dt_config.numerical_split().type(),
                                   dt_config.numerical_split().num_candidates(),
                                   attributes, *min_value, *max_value, random
@@ -2776,7 +2777,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     };
     ASSIGN_OR_RETURN(
         const auto bins,
-        internal::GenHistogramBins(dt_config.numerical_split().type(),
+        internal::GenHistogramBins(
+          selected_examples.size(),
+          dt_config.numerical_split().type(),
                                    dt_config.numerical_split().num_candidates(),
                                    attributes, min_value, max_value, random));
 
@@ -5573,6 +5576,25 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       return valid_items > 0;
     }
 
+    // 1. reservoir/Floyd sampling -> indices of the k examples we keep
+    absl::btree_set<size_t> FloydsSampling(
+      const size_t n_sampled_points,
+      const size_t n_total_points,
+      utils::RandomEngine *random
+    ) {
+      
+      absl::btree_set<size_t> picked_idx;
+
+      // Floyd's sampler to select k indices uniformly
+      for (auto j = n_total_points - n_sampled_points; j < n_sampled_points;
+          ++j) {
+          const auto t = absl::Uniform<size_t>(*random, 0, j + 1);
+          if (!picked_idx.insert(t).second) picked_idx.insert(j);
+      }
+
+      return picked_idx;
+    }
+
     // Can't make vector<CandidateSplit> bcs. CandidateSplit is not defined in .h
     absl::StatusOr<std::vector<CandidateSplit>> SubsampleData(
       const absl::Span<const UnsignedExampleIdx> selected_examples,
@@ -5590,16 +5612,11 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
       std::vector<CandidateSplit> candidate_splits(n_points);
 
-      // 1. reservoir/Floyd sampling -> indices of the k examples we keep
-      // ------------------------------------------------------------------
-      absl::btree_set<size_t> picked_idx;
-
-      // Floyd's sampler to select k indices uniformly
-      for (size_t j = selected_examples.size() - n_points; j < selected_examples.size();
-          ++j) {
-      size_t t = absl::Uniform<size_t>(*random, 0, j + 1);
-      if (!picked_idx.insert(t).second) picked_idx.insert(j);
-      }
+      const absl::btree_set<size_t> picked_idx = FloydsSampling(
+        n_points,
+        selected_examples.size(),
+        random
+      );
 
       std::vector<size_t> picked(picked_idx.begin(), picked_idx.end());
 
@@ -5629,6 +5646,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     }
 
     absl::StatusOr<std::vector<float>> GenHistogramBins(
+        const int total_num_samples,
         const proto::NumericalSplit::Type type, const int num_splits,
         const absl::Span<const float> attributes, const float min_value,
         const float max_value, utils::RandomEngine *random)
@@ -5647,6 +5665,22 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         for (auto &candidate_split : candidate_splits)
         {
           candidate_split = threshold_distribution(*random);
+        }
+        // In Equal Width, these are produced already sorted
+        std::sort(candidate_splits.begin(), candidate_splits.end());
+      }
+      break;
+      case proto::NumericalSplit::SUBSAMPLE_HISTOGRAM: {
+        const auto picked_idxs = internal::FloydsSampling(
+          num_splits,
+          total_num_samples,
+          random
+        );
+
+        int i = 0;
+        for (const auto picked_idx : picked_idxs) {
+          candidate_splits[i] = picked_idx;
+          i++;
         }
         // In Equal Width, these are produced already sorted
         std::sort(candidate_splits.begin(), candidate_splits.end());
