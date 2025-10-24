@@ -1262,6 +1262,7 @@ absl::Status ProjectionEvaluator::Evaluate(
       value += attribute_value * item.weight;
     }
 
+    // selected_idx is doing the bootstrapping, that's why values is indexed by selected_idx and attributes by example_idx
     (*values)[selected_idx] = value;
 
     // Single-instruction min/max – no branches, tiny latency.
