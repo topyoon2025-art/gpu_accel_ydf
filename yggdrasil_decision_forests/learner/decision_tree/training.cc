@@ -74,16 +74,11 @@
   #define PRINT_PROJECTION_MATRICES_FLAG 0
 #endif
 
-#ifndef FAST_EQUAL_WIDTH_BINNING_FLAG
-  #define FAST_EQUAL_WIDTH_BINNING_FLAG 0
-#endif
-
 
 namespace yggdrasil_decision_forests::model::decision_tree
 {
 
   static constexpr bool PRINT_PROJECTION_MATRICES = PRINT_PROJECTION_MATRICES_FLAG;
-  static constexpr bool FAST_EQUAL_WIDTH_BINNING = FAST_EQUAL_WIDTH_BINNING_FLAG;
 
   namespace
   {
@@ -2331,8 +2326,6 @@ ASSIGN_OR_RETURN(
     candidate_split.threshold = bins[split_idx];
   }
 
-    const bool use_equal_width_fast_path =
-(dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) && FAST_EQUAL_WIDTH_BINNING;
 // Compute the split score of each threshold.
 // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
 { // Ariel: Costliest loop for first half tree levels
@@ -2349,7 +2342,7 @@ ASSIGN_OR_RETURN(
     // Return 1st element of candidate_splits > attribute
     
     // TODO Ariel condition this on only Equal Width binning! Testin this for vectorization
-    if (use_equal_width_fast_path) {
+    if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
       const int idx = EqualWidthThresholdIndex(
       attribute, *min_value, *max_value, candidate_splits.size());
       
