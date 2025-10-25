@@ -2331,7 +2331,11 @@ ASSIGN_OR_RETURN(
 { // Ariel: Costliest loop for first half tree levels
   CHRONO_SCOPE(
       ::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
-  for (const auto example_idx : selected_examples) {
+
+  // Move if outside loop to remove in-loop branches. Helps vectorization
+  // Equal Width histograms can be filled in O(n) by using bin arithmetic to assign samples to bins
+  if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
+    for (const auto example_idx : selected_examples) {
     const int32_t label = labels[example_idx];
     // TODO Ariel create unweighted & unbranched version
     const float weight = weights.empty() ? 1.f : weights[example_idx];
@@ -2342,7 +2346,6 @@ ASSIGN_OR_RETURN(
     // Return 1st element of candidate_splits > attribute
     
     // TODO Ariel condition this on only Equal Width binning! Testin this for vectorization
-    if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
       const int idx = EqualWidthThresholdIndex(
       attribute, *min_value, *max_value, candidate_splits.size());
       
@@ -2368,20 +2371,29 @@ ASSIGN_OR_RETURN(
 
       it_split.num_positive_examples_without_weights++;
       it_split.pos_label_distribution.Add(label, weight);
-    } else {
-    // Existing path for random (or other) threshold types
-    auto it_split = std::upper_bound(
-    candidate_splits.begin(), candidate_splits.end(), attribute,
-    [](const float a, const internal::CandidateSplit& b) { return a < b.threshold; });
+    }
+  } else { // Existing path for random (or other) threshold types
+    for (const auto example_idx : selected_examples) {
+      const int32_t label = labels[example_idx];
+      // TODO Ariel create unweighted & unbranched version
+      const float weight = weights.empty() ? 1.f : weights[example_idx];
+      const float attribute = attributes[example_idx];
     
-    if (it_split == candidate_splits.begin()) { continue; }
-
-    --it_split;
-    it_split->num_positive_examples_without_weights++;
-    it_split->pos_label_distribution.Add(label, weight);
-  }}
-}
-}
+      // Ariel no need for isnan check here - done in ApplyProjection
+    
+      // Return 1st element of candidate_splits > attribute
+      auto it_split = std::upper_bound(
+      candidate_splits.begin(), candidate_splits.end(), attribute,
+      [](const float a, const internal::CandidateSplit& b) { return a < b.threshold; });
+      
+      
+      if (it_split == candidate_splits.begin()) { continue; }
+      --it_split;
+      it_split->num_positive_examples_without_weights++;
+      it_split->pos_label_distribution.Add(label, weight);
+    }
+  }
+}}
 
 {
   CHRONO_SCOPE(
