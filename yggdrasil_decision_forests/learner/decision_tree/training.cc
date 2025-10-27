@@ -2346,7 +2346,7 @@ struct SIMDUpperBoundBins {
 
     const int groups = (n + group_size - 1) / group_size;
 
-  #if defined(__AVX512F__)
+  #if defined(__AVX512F__) && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
       {
         // -------------------- AVX-512 version --------------------
         const int vecW = 16;
@@ -2379,7 +2379,7 @@ struct SIMDUpperBoundBins {
         int cnt       = _mm_popcnt_u32((unsigned)(m2 & tailmask));
         return cnt == 0 ? -1 : (start + cnt - 1);
       }
-  #elif defined(__AVX2__)
+  #elif defined(__AVX2__) && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
       {
         // -------------------- AVX2 version --------------------
         const int vecW = 8;
@@ -2507,9 +2507,9 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
       it_split.pos_label_distribution.Add(label, weight);
     }
   } else {
-    // #if defined(__AVX2__) 
-    //   std::cout << "Running w/ AVX2 vector instruction set" << std::endl;
-    // #endif
+    #if defined(__AVX2__)  && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+      std::cout << "Running w/ AVX2 vector instruction set" << std::endl;
+    #endif
     // Existing path for random (or other) threshold types
     for (const auto example_idx : selected_examples) {
       const int32_t label = labels[example_idx];
