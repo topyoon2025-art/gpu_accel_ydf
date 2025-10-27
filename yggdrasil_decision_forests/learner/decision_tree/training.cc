@@ -33,6 +33,12 @@
 #include <vector>
 #include <cmath>
 
+// SIMD for std::upper_bound
+#include <immintrin.h>
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+
 #include "absl/container/btree_set.h"
 #include "absl/random/random.h"
 #include "absl/base/optimization.h"
@@ -2301,40 +2307,168 @@ if (dt_config.missing_value_policy() ==
 if (*min_value == *max_value) { return SplitSearchResult::kInvalidAttribute; }
 
 
-
-
 std::vector<float> bins;
 std::vector<size_t> subsampled_idx;
 std::vector<internal::CandidateSplit> candidate_splits(dt_config.numerical_split().num_candidates());
 
+
+// Build with -mavx2 or -mavx512f as appropriate.
+// Thresholds must be sorted ascending, like your candidate_splits[].threshold.
+struct SIMDUpperBoundBins {
+  // Contiguous thresholds (sorted ascending).
+  std::vector<float> thresholds;
+  // Coarse upper bounds: every group_size-th threshold (the group's last).
+  std::vector<float> coarse_ub;
+  int group_size = 8;   // 8 works well for AVX2 and AVX-512.  Use 16 if AVX-512 only.
+
+  void InitFromCandidateSplits(const std::vector<internal::CandidateSplit>& cs,
+                               int gsize = 8) {
+    group_size = gsize;
+    const int n = static_cast<int>(cs.size());
+    thresholds.resize(n);
+    for (int i = 0; i < n; ++i) thresholds[i] = cs[i].threshold;
+    BuildCoarse();
+  }
+
+  void InitFromThresholds(const std::vector<float>& thr, int gsize = 8) {
+    group_size = gsize;
+    thresholds = thr;
+    BuildCoarse();
+  }
+
+  inline int size() const { return static_cast<int>(thresholds.size()); }
+
+  // Return the index of the last threshold ≤ x (i.e. upper_bound(x) - 1).
+  // Returns −1 if all thresholds > x (i.e. upper_bound == begin).
+  int Index(float x) const {
+    const int n = size();
+    if (n == 0) return -1;
+
+    const int groups = (n + group_size - 1) / group_size;
+
+  #if defined(__AVX512F__)
+      {
+        // -------------------- AVX-512 version --------------------
+        const int vecW = 16;
+        __m512 vx = _mm512_set1_ps(x);
+        int K = 0;
+        int i = 0;
+
+        // Coarse pass
+        for (; i + vecW <= groups; i += vecW) {
+          __m512 vcoarse = _mm512_loadu_ps(&coarse_ub[i]);
+          __mmask16 m = _mm512_cmp_ps_mask(vx, vcoarse, _CMP_GE_OQ);
+          K += _mm_popcnt_u32((unsigned)m);
+        }
+        if (i < groups) {
+          const int rem = groups - i;
+          __mmask16 tailmask = (rem == 16) ? 0xFFFFu : ((1u << rem) - 1u);
+          __m512 vcoarse = _mm512_maskz_loadu_ps(tailmask, &coarse_ub[i]);
+          __mmask16 m = _mm512_cmp_ps_mask(vx, vcoarse, _CMP_GE_OQ);
+          K += _mm_popcnt_u32((unsigned)(m & tailmask));
+        }
+
+        if (K >= groups) return n - 1;  // x ≥ last threshold
+
+        // Fine pass
+        const int start = K * group_size;
+        const int len   = std::min(group_size, n - start);
+        __mmask16 tailmask = (len == 16) ? 0xFFFFu : ((1u << len) - 1u);
+        __m512 vthr   = _mm512_maskz_loadu_ps(tailmask, &thresholds[start]);
+        __mmask16 m2  = _mm512_cmp_ps_mask(vx, vthr, _CMP_GE_OQ);
+        int cnt       = _mm_popcnt_u32((unsigned)(m2 & tailmask));
+        return cnt == 0 ? -1 : (start + cnt - 1);
+      }
+  #elif defined(__AVX2__)
+      {
+        // -------------------- AVX2 version --------------------
+        const int vecW = 8;
+        __m256 vx = _mm256_set1_ps(x);
+        int K = 0;
+        int i = 0;
+        // Coarse pass
+        for (; i + vecW <= groups; i += vecW) {
+          __m256 vcoarse = _mm256_loadu_ps(&coarse_ub[i]);
+          __m256 cmp     = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);
+          int mask       = _mm256_movemask_ps(cmp);
+          K += _mm_popcnt_u32((unsigned)mask);
+        }
+        if (i < groups) {
+          const int rem = groups - i;
+          float tmp[8] = {0};
+          for (int t = 0; t < rem; ++t) tmp[t] = coarse_ub[i + t];
+          __m256 vcoarse = _mm256_loadu_ps(tmp);
+          __m256 cmp     = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);
+          int mask       = _mm256_movemask_ps(cmp) & ((1 << rem) - 1);
+          K += _mm_popcnt_u32((unsigned)mask);
+        }
+        if (K >= groups) return n - 1;  // x ≥ last threshold
+        // Fine pass  (len ≤ group_size ≤ 8)
+        const int start = K * group_size;
+        const int len   = std::min(group_size, n - start);
+        float tmp[8] = {0};
+        for (int t = 0; t < len; ++t) tmp[t] = thresholds[start + t];
+        __m256 vthr  = _mm256_loadu_ps(tmp);
+        __m256 cmp   = _mm256_cmp_ps(vx, vthr, _CMP_GE_OQ);
+        int mask     = _mm256_movemask_ps(cmp) & ((1 << len) - 1);
+        int cnt      = _mm_popcnt_u32((unsigned)mask);
+        return cnt == 0 ? -1 : (start + cnt - 1);
+      }
+  #else
+      {
+        // --------------- Scalar fallback ----------------
+        auto it = std::upper_bound(thresholds.begin(), thresholds.end(), x);
+        if (it == thresholds.begin()) return -1;
+        return static_cast<int>(it - thresholds.begin()) - 1;
+      }
+  #endif
+    }
+
+  private:
+    void BuildCoarse() {
+      const int n      = size();
+      const int groups = (n + group_size - 1) / group_size;
+      coarse_ub.resize(groups);
+      for (int k = 0; k < groups; ++k) {
+        int end_idx    = std::min(n, (k + 1) * group_size) - 1;
+        coarse_ub[k]   = thresholds[end_idx];
+      }
+    }
+};
+
 if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINTS) {
-ASSIGN_OR_RETURN(
+  ASSIGN_OR_RETURN(
     bins,
         internal::GenHistogramBins(
           selected_examples.size(),
           dt_config.numerical_split().type(),
                                   dt_config.numerical_split().num_candidates(),
                                   attributes, *min_value, *max_value, random
-        ));
+  ));
     
+  SIMDUpperBoundBins bins_accel;
     
-    {
-  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kHistogramSetNumClasses);
-  for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++) {
-    auto &candidate_split = candidate_splits[split_idx];
-    candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
-    candidate_split.threshold = bins[split_idx];
+  {
+    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kHistogramSetNumClasses);
+  
+    for (int split_idx = 0; split_idx < candidate_splits.size(); split_idx++) {
+      auto &candidate_split = candidate_splits[split_idx];
+      candidate_split.pos_label_distribution.SetNumClasses(num_label_classes);
+      candidate_split.threshold = bins[split_idx];
+    }
+
+    bins_accel.InitFromCandidateSplits(candidate_splits);
   }
 
-// Compute the split score of each threshold.
-// TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
+
+  // Compute the split score of each threshold.
+  // TODO ariel again, why not loop over dense projection. Double check if selected_examples is dense vs. dense post-applyprojection vector
 { // Ariel: Costliest loop for first half tree levels
-  CHRONO_SCOPE(
-      ::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
+  CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
 
   // Move if outside loop to remove in-loop branches. Helps vectorization
-  // Equal Width histograms can be filled in O(n) by using bin arithmetic to assign samples to bins
   if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
+    // Equal Width histograms can be filled in O(n) by using bin arithmetic to assign samples to bins
     for (const auto example_idx : selected_examples) {
     const int32_t label = labels[example_idx];
     // TODO Ariel create unweighted & unbranched version
@@ -2372,7 +2506,11 @@ ASSIGN_OR_RETURN(
       it_split.num_positive_examples_without_weights++;
       it_split.pos_label_distribution.Add(label, weight);
     }
-  } else { // Existing path for random (or other) threshold types
+  } else {
+    // #if defined(__AVX2__) 
+    //   std::cout << "Running w/ AVX2 vector instruction set" << std::endl;
+    // #endif
+    // Existing path for random (or other) threshold types
     for (const auto example_idx : selected_examples) {
       const int32_t label = labels[example_idx];
       // TODO Ariel create unweighted & unbranched version
@@ -2382,18 +2520,22 @@ ASSIGN_OR_RETURN(
       // Ariel no need for isnan check here - done in ApplyProjection
     
       // Return 1st element of candidate_splits > attribute
-      auto it_split = std::upper_bound(
-      candidate_splits.begin(), candidate_splits.end(), attribute,
-      [](const float a, const internal::CandidateSplit& b) { return a < b.threshold; });
+      int idx = bins_accel.Index(attribute);
+      if (idx < 0) {            // attribute ≤ smallest threshold
+          continue;
+      }
+      auto& it_split = candidate_splits[idx];
+      it_split.num_positive_examples_without_weights++;
+      it_split.pos_label_distribution.Add(label, weight);
       
-      
-      if (it_split == candidate_splits.begin()) { continue; }
-      --it_split;
-      it_split->num_positive_examples_without_weights++;
-      it_split->pos_label_distribution.Add(label, weight);
+
+      // if (it_split == candidate_splits.begin()) { continue; }
+      // --it_split;
+      // it_split->num_positive_examples_without_weights++;
+      // it_split->pos_label_distribution.Add(label, weight);
     }
   }
-}}
+}
 
 {
   CHRONO_SCOPE(
@@ -2407,8 +2549,7 @@ ASSIGN_OR_RETURN(
   }
 }
 }
-else {
-  // Subsample data and use only those points as "bins"
+else { // Subsample data and use only those points as "bins"
   ASSIGN_OR_RETURN(
     candidate_splits, // Select some threshold values
         internal::SubsampleData(
