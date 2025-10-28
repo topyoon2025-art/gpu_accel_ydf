@@ -2382,36 +2382,62 @@ struct SIMDUpperBoundBins {
   #elif defined(__AVX2__) && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
       {
         // -------------------- AVX2 version --------------------
-        const int vecW = 8;
+        const int vecW = 8;  // AVX2 register width: 8 single-precision floats.
+
+        /* Broadcast x to all eight lanes of an AVX2 register. */
         __m256 vx = _mm256_set1_ps(x);
-        int K = 0;
+
+        int K = 0;  // Number of groups with upper-bound ≤ x.
         int i = 0;
-        // Coarse pass
+
+        // -------------------- Coarse pass --------------------
         for (; i + vecW <= groups; i += vecW) {
+          /* Load the next eight coarse upper-bounds (unaligned). */
           __m256 vcoarse = _mm256_loadu_ps(&coarse_ub[i]);
-          __m256 cmp     = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);
-          int mask       = _mm256_movemask_ps(cmp);
-          K += _mm_popcnt_u32((unsigned)mask);
+
+          /* Compare lane-wise: vx >= vcoarse.
+          * _CMP_GE_OQ = “ordered, non-signalling, ≥”.
+          * Result: 0xFFFFFFFF in a lane if predicate is true, 0x0 otherwise.
+          */
+          __m256 cmp = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);
+
+          /* Extract the sign bit of each lane from |cmp| to form an 8-bit mask.
+          * Bit k = 1  ⇒  vx ≥ vcoarse[k].
+          */
+          int mask = _mm256_movemask_ps(cmp);
+
+          /* Count the number of set bits in |mask|.
+          * Each set bit corresponds to one satisfied upper-bound.
+          */
+          K += _mm_popcnt_u32(static_cast<unsigned>(mask));
         }
+
+        /* Handle the tail when (groups % 8) ≠ 0. */
         if (i < groups) {
           const int rem = groups - i;
           float tmp[8] = {0};
           for (int t = 0; t < rem; ++t) tmp[t] = coarse_ub[i + t];
-          __m256 vcoarse = _mm256_loadu_ps(tmp);
-          __m256 cmp     = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);
-          int mask       = _mm256_movemask_ps(cmp) & ((1 << rem) - 1);
-          K += _mm_popcnt_u32((unsigned)mask);
+
+          __m256 vcoarse = _mm256_loadu_ps(tmp);               // Load up to 8 remaining bounds.
+          __m256 cmp     = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);  // Compare as above.
+          int mask       = _mm256_movemask_ps(cmp) & ((1 << rem) - 1);  // Keep only |rem| bits.
+          K += _mm_popcnt_u32(static_cast<unsigned>(mask));    // Update group count.
         }
-        if (K >= groups) return n - 1;  // x ≥ last threshold
-        // Fine pass  (len ≤ group_size ≤ 8)
-        const int start = K * group_size;
-        const int len   = std::min(group_size, n - start);
+
+        if (K >= groups) return n - 1;  // |x| ≥ last threshold – fast exit.
+
+        // -------------------- Fine pass (|group_size| ≤ 8) --------------------
+        const int start = K * group_size;                    // First index of the group to scan.
+        const int len   = std::min(group_size, n - start);   // Number of thresholds to check.
+
         float tmp[8] = {0};
         for (int t = 0; t < len; ++t) tmp[t] = thresholds[start + t];
-        __m256 vthr  = _mm256_loadu_ps(tmp);
-        __m256 cmp   = _mm256_cmp_ps(vx, vthr, _CMP_GE_OQ);
-        int mask     = _mm256_movemask_ps(cmp) & ((1 << len) - 1);
-        int cnt      = _mm_popcnt_u32((unsigned)mask);
+
+        __m256 vthr = _mm256_loadu_ps(tmp);                      // Load up to 8 thresholds.
+        __m256 cmp  = _mm256_cmp_ps(vx, vthr, _CMP_GE_OQ);       // Compare vx ≥ threshold.
+        int mask    = _mm256_movemask_ps(cmp) & ((1 << len) - 1);  // Trim mask to |len| bits.
+        int cnt     = _mm_popcnt_u32(static_cast<unsigned>(mask)); // #thresholds ≤ x.
+
         return cnt == 0 ? -1 : (start + cnt - 1);
       }
   #else
