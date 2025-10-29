@@ -2315,151 +2315,112 @@ std::vector<internal::CandidateSplit> candidate_splits(dt_config.numerical_split
 // Build with -mavx2 or -mavx512f as appropriate.
 // Thresholds must be sorted ascending, like your candidate_splits[].threshold.
 struct SIMDUpperBoundBins {
-  // Contiguous thresholds (sorted ascending).
-  std::vector<float> thresholds;
-  // Coarse upper bounds: every group_size-th threshold (the group's last).
-  std::vector<float> coarse_ub;
-  int group_size = 8;   // 8 works well for AVX2 and AVX-512.  Use 16 if AVX-512 only.
+  // Scalar fallback data (used if not 256 or 64 thresholds).
+  std::vector<float> scalar_thr;
 
-  void InitFromCandidateSplits(const std::vector<internal::CandidateSplit>& cs,
-                               int gsize = 8) {
-    group_size = gsize;
-    const int n = static_cast<int>(cs.size());
-    thresholds.resize(n);
-    for (int i = 0; i < n; ++i) thresholds[i] = cs[i].threshold;
-    BuildCoarse();
+#if defined(__AVX512F__)
+  // AVX-512 256-bin fast path data.
+  alignas(64) float thr256[256];   // fully aligned, 16-float groups => aligned group loads
+  __m512  coarse16;                // packed coarse upper-bounds for 16 groups (last in each 16-block)
+  bool    avx512_256 = false;
+#endif
+
+#if defined(__AVX2__)
+  // AVX2 64-bin fast path data.
+  alignas(32) float thr64[64];     // fully aligned, 8-float groups => aligned group loads
+  __m256  coarse8;                 // packed coarse upper-bounds for 8 groups (last in each 8-block)
+  bool    avx2_64 = false;
+#endif
+
+  // thresholds must be sorted ascending
+  void Init(const std::vector<float>& thr) {
+#if defined(__AVX512F__) && defined (ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+    if (thr.size() == 256) {
+      for (int i = 0; i < 256; ++i) thr256[i] = thr[i];
+
+      alignas(64) float tmp[16];
+      for (int g = 0; g < 16; ++g) tmp[g] = thr256[(g + 1) * 16 - 1];  // last in each 16-block
+      coarse16 = _mm512_load_ps(tmp);  // pre-packed coarse vector
+
+      avx512_256 = true;
+#if defined(__AVX2__)
+      avx2_64 = false;
+#endif
+      scalar_thr.clear();
+      return;
+    }
+#endif
+
+#if defined(__AVX2__) && defined (ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+    if (thr.size() == 64) {
+      for (int i = 0; i < 64; ++i) thr64[i] = thr[i];
+
+      alignas(32) float tmp[8];
+      for (int g = 0; g < 8; ++g) tmp[g] = thr64[(g + 1) * 8 - 1];  // last in each 8-block
+      coarse8 = _mm256_load_ps(tmp);  // pre-packed coarse vector
+
+      avx2_64 = true;
+#if defined(__AVX512F__) && defined (ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+      avx512_256 = false;
+#endif
+      scalar_thr.clear();
+      return;
+    }
+#endif
+
+    // Fallback to scalar for any other size.
+    scalar_thr = thr;
+#if defined(__AVX512F__) && defined (ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+    avx512_256 = false;
+#endif
+#if defined(__AVX2__) && defined (ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+    avx2_64 = false;
+#endif
   }
 
-  void InitFromThresholds(const std::vector<float>& thr, int gsize = 8) {
-    group_size = gsize;
-    thresholds = thr;
-    BuildCoarse();
-  }
-
-  inline int size() const { return static_cast<int>(thresholds.size()); }
-
-  // Return the index of the last threshold ≤ x (i.e. upper_bound(x) - 1).
-  // Returns −1 if all thresholds > x (i.e. upper_bound == begin).
+  // Returns index of last threshold <= x; -1 if all thresholds > x
   int Index(float x) const {
-    const int n = size();
-    if (n == 0) return -1;
+#if defined(__AVX512F__) && defined (ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+    if (avx512_256) {
+      // Coarse: 16 groups
+      __m512 vx = _mm512_set1_ps(x);
+      __mmask16 m = _mm512_cmp_ps_mask(vx, coarse16, _CMP_GE_OQ);
+      unsigned K = (unsigned)_mm_popcnt_u32((unsigned)m);  // 0..16
+      if (K >= 16) return 255;                             // x >= last threshold
 
-    const int groups = (n + group_size - 1) / group_size;
+      // Fine: within chosen group (16 thresholds)
+      const float* base = thr256 + (K << 4);               // aligned (16*4B*16 = 64B stride)
+      __m512 vthr = _mm512_load_ps(base);
+      __mmask16 mf = _mm512_cmp_ps_mask(vx, vthr, _CMP_GE_OQ);
+      unsigned cnt = (unsigned)_mm_popcnt_u32((unsigned)mf);  // 0..16
 
-  #if defined(__AVX512F__) && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
-      {
-        // -------------------- AVX-512 version --------------------
-        const int vecW = 16;
-        __m512 vx = _mm512_set1_ps(x);
-        int K = 0;
-        int i = 0;
-
-        // Coarse pass
-        for (; i + vecW <= groups; i += vecW) {
-          __m512 vcoarse = _mm512_loadu_ps(&coarse_ub[i]);
-          __mmask16 m = _mm512_cmp_ps_mask(vx, vcoarse, _CMP_GE_OQ);
-          K += _mm_popcnt_u32((unsigned)m);
-        }
-        if (i < groups) {
-          const int rem = groups - i;
-          __mmask16 tailmask = (rem == 16) ? 0xFFFFu : ((1u << rem) - 1u);
-          __m512 vcoarse = _mm512_maskz_loadu_ps(tailmask, &coarse_ub[i]);
-          __mmask16 m = _mm512_cmp_ps_mask(vx, vcoarse, _CMP_GE_OQ);
-          K += _mm_popcnt_u32((unsigned)(m & tailmask));
-        }
-
-        if (K >= groups) return n - 1;  // x ≥ last threshold
-
-        // Fine pass
-        const int start = K * group_size;
-        const int len   = std::min(group_size, n - start);
-        __mmask16 tailmask = (len == 16) ? 0xFFFFu : ((1u << len) - 1u);
-        __m512 vthr   = _mm512_maskz_loadu_ps(tailmask, &thresholds[start]);
-        __mmask16 m2  = _mm512_cmp_ps_mask(vx, vthr, _CMP_GE_OQ);
-        int cnt       = _mm_popcnt_u32((unsigned)(m2 & tailmask));
-        return cnt == 0 ? -1 : (start + cnt - 1);
-      }
-  #elif defined(__AVX2__) && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
-      {
-        // -------------------- AVX2 version --------------------
-        const int vecW = 8;  // AVX2 register width: 8 single-precision floats.
-
-        /* Broadcast x to all eight lanes of an AVX2 register. */
-        __m256 vx = _mm256_set1_ps(x);
-
-        int K = 0;  // Number of groups with upper-bound ≤ x.
-        int i = 0;
-
-        // -------------------- Coarse pass --------------------
-        for (; i + vecW <= groups; i += vecW) {
-          /* Load the next eight coarse upper-bounds (unaligned). */
-          __m256 vcoarse = _mm256_loadu_ps(&coarse_ub[i]);
-
-          /* Compare lane-wise: vx >= vcoarse.
-          * _CMP_GE_OQ = “ordered, non-signalling, ≥”.
-          * Result: 0xFFFFFFFF in a lane if predicate is true, 0x0 otherwise.
-          */
-          __m256 cmp = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);
-
-          /* Extract the sign bit of each lane from |cmp| to form an 8-bit mask.
-          * Bit k = 1  ⇒  vx ≥ vcoarse[k].
-          */
-          int mask = _mm256_movemask_ps(cmp);
-
-          /* Count the number of set bits in |mask|.
-          * Each set bit corresponds to one satisfied upper-bound.
-          */
-          K += _mm_popcnt_u32(static_cast<unsigned>(mask));
-        }
-
-        /* Handle the tail when (groups % 8) ≠ 0. */
-        if (i < groups) {
-          const int rem = groups - i;
-          float tmp[8] = {0};
-          for (int t = 0; t < rem; ++t) tmp[t] = coarse_ub[i + t];
-
-          __m256 vcoarse = _mm256_loadu_ps(tmp);               // Load up to 8 remaining bounds.
-          __m256 cmp     = _mm256_cmp_ps(vx, vcoarse, _CMP_GE_OQ);  // Compare as above.
-          int mask       = _mm256_movemask_ps(cmp) & ((1 << rem) - 1);  // Keep only |rem| bits.
-          K += _mm_popcnt_u32(static_cast<unsigned>(mask));    // Update group count.
-        }
-
-        if (K >= groups) return n - 1;  // |x| ≥ last threshold – fast exit.
-
-        // -------------------- Fine pass (|group_size| ≤ 8) --------------------
-        const int start = K * group_size;                    // First index of the group to scan.
-        const int len   = std::min(group_size, n - start);   // Number of thresholds to check.
-
-        float tmp[8] = {0};
-        for (int t = 0; t < len; ++t) tmp[t] = thresholds[start + t];
-
-        __m256 vthr = _mm256_loadu_ps(tmp);                      // Load up to 8 thresholds.
-        __m256 cmp  = _mm256_cmp_ps(vx, vthr, _CMP_GE_OQ);       // Compare vx ≥ threshold.
-        int mask    = _mm256_movemask_ps(cmp) & ((1 << len) - 1);  // Trim mask to |len| bits.
-        int cnt     = _mm_popcnt_u32(static_cast<unsigned>(mask)); // #thresholds ≤ x.
-
-        return cnt == 0 ? -1 : (start + cnt - 1);
-      }
-  #else
-      {
-        // --------------- Scalar fallback ----------------
-        auto it = std::upper_bound(thresholds.begin(), thresholds.end(), x);
-        if (it == thresholds.begin()) return -1;
-        return static_cast<int>(it - thresholds.begin()) - 1;
-      }
-  #endif
+      return int((K << 4) + cnt) - 1;  // automatically yields -1 if K==0 and cnt==0
     }
+#endif
 
-  private:
-    void BuildCoarse() {
-      const int n      = size();
-      const int groups = (n + group_size - 1) / group_size;
-      coarse_ub.resize(groups);
-      for (int k = 0; k < groups; ++k) {
-        int end_idx    = std::min(n, (k + 1) * group_size) - 1;
-        coarse_ub[k]   = thresholds[end_idx];
-      }
+#if defined(__AVX2__) && defined (ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+    if (avx2_64) {
+      // Coarse: 8 groups
+      __m256 vx = _mm256_set1_ps(x);
+      unsigned mc = (unsigned)_mm256_movemask_ps(_mm256_cmp_ps(vx, coarse8, _CMP_GE_OQ));
+      unsigned K = (unsigned)_mm_popcnt_u32(mc);           // 0..8
+      if (K >= 8) return 63;                                // x >= last threshold
+
+      // Fine: within chosen group (8 thresholds)
+      const float* base = thr64 + (K << 3);                 // aligned (8*4B*8 = 32B stride)
+      __m256 vthr = _mm256_load_ps(base);
+      unsigned mf = (unsigned)_mm256_movemask_ps(_mm256_cmp_ps(vx, vthr, _CMP_GE_OQ));
+      unsigned cnt = (unsigned)_mm_popcnt_u32(mf);          // 0..8
+
+      return int((K << 3) + cnt) - 1;                       // -1 if K==0 and cnt==0
     }
+#endif
+
+    // Scalar fallback
+    auto it = std::upper_bound(scalar_thr.begin(), scalar_thr.end(), x);
+    if (it == scalar_thr.begin()) return -1;
+    return int(it - scalar_thr.begin()) - 1;
+  }
 };
 
 if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINTS) {
@@ -2483,7 +2444,13 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
       candidate_split.threshold = bins[split_idx];
     }
 
-    bins_accel.InitFromCandidateSplits(candidate_splits);
+    std::vector<float> thresholds;
+    thresholds.reserve(candidate_splits.size());
+    for (const auto& cs : candidate_splits) {
+      thresholds.push_back(cs.threshold);
+    }
+
+    bins_accel.Init(thresholds);
   }
 
 
@@ -2533,9 +2500,9 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
       it_split.pos_label_distribution.Add(label, weight);
     }
   } else {
-    #if defined(__AVX2__)  && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
-      std::cout << "Running w/ AVX2 vector instruction set" << std::endl;
-    #endif
+    // #if defined(__AVX2__)  && defined(ENABLE_STD_UPPER_BOUND_VECTORIZATION)
+    //   std::cout << "Running w/ AVX2 vector instruction set" << std::endl;
+    // #endif
     // Existing path for random (or other) threshold types
     for (const auto example_idx : selected_examples) {
       const int32_t label = labels[example_idx];
@@ -2553,12 +2520,6 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
       auto& it_split = candidate_splits[idx];
       it_split.num_positive_examples_without_weights++;
       it_split.pos_label_distribution.Add(label, weight);
-      
-
-      // if (it_split == candidate_splits.begin()) { continue; }
-      // --it_split;
-      // it_split->num_positive_examples_without_weights++;
-      // it_split->pos_label_distribution.Add(label, weight);
     }
   }
 }

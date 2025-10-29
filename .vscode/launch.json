@@ -164,7 +164,7 @@
       ]
     },
     {
-      "name": "Oblique Equal Width Histogram on MIGHT",
+      "name": "Oblique Histogram on MIGHT",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
@@ -172,7 +172,10 @@
         "--input_mode",
         "csv",
         "--numerical_split_type",
-        "Equal Width"
+        "Random",
+        "--histogram_num_bins",
+        "64",
+        "--num_trees=10"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
