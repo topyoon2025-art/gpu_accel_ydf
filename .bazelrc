@@ -11,7 +11,7 @@ build --ui_event_filters=-warning
 # Can't seem to add to bazel dbg using build:dbg!! Have to Define separate config
 build:intel_debug --strip=never          # keep symbols, don’t fiddle with fission
 build:intel_debug --cxxopt=-g --linkopt=-g
-build:intel_debug --cxxopt=-O0 --linkopt=-O0
+build:intel_debug --cxxopt=-O0 --linkopt=-O0 --cxxopt=-fno-inline
 build:intel_debug --copt=-D_GLIBCXX_DEBUG # vector range checks
 
 

@@ -23,7 +23,7 @@
         "--cols=512",
         "--num_trees=1",
         "--num_threads=-1",
-        "--numerical_split_type=Subsample"
+        "--numerical_split_type=Random"
         // "--compute_oob_performances=false"
       ],
       "stopAtEntry": false,

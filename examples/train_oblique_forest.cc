@@ -21,8 +21,10 @@
 #include "yggdrasil_decision_forests/utils/filesystem.h"
 
 #include <random>
-#include "absl/random/random.h"          // BitGen (xoshiro)
-#include "absl/random/distributions.h"   // Gaussian()
+
+// WARNING: Abseil does not do input seeding! Multiple runs have non-deterministic outputs
+// #include "absl/random/random.h"          // BitGen (xoshiro)
+// #include "absl/random/distributions.h"   // Gaussian()
 
 
 /* #region ABSL Flags */
@@ -112,35 +114,31 @@ dataset::proto::DataSpecification MakeSyntheticSpec(
   return spec;
 }
 
+// TODO Abseil does not give deterministic RNG - fix it!
 // ------------------------------------------------------------------ uniform
-dataset::VerticalDataset MakeUniformDataset(
-        const dataset::proto::DataSpecification& spec,
-        int64_t rows, int cols, uint32_t seed) {
-
-  dataset::VerticalDataset ds;
-  ds.set_data_spec(spec);
-  CHECK_OK(ds.CreateColumnsFromDataspec());
-  ds.Resize(rows);
-
-#pragma omp parallel for schedule(static)
-  for (int c = 0; c < cols; ++c) {
-    std::seed_seq seq{seed + static_cast<uint32_t>(c)};
-    absl::BitGen gen(seq);
-
-    auto* col =
-        ds.MutableColumnWithCast<
-            dataset::VerticalDataset::NumericalColumn>(c)->mutable_values();
-    for (auto& v : *col) v = absl::Gaussian<float>(gen);
-  }
-
-  // labels: round-robin 0,1,…
-  auto* ycol = ds.MutableColumnWithCast<
-      dataset::VerticalDataset::CategoricalColumn>(cols);
-  auto* yval = ycol->mutable_values();
-  for (int64_t i = 0; i < rows; ++i) (*yval)[i] = static_cast<int>((i & 1) + 1);    // 1 or 2, not 0/1
-
-  return ds;
-}
+// dataset::VerticalDataset MakeUniformDataset(
+//         const dataset::proto::DataSpecification& spec,
+//         int64_t rows, int cols, uint32_t seed) {
+//   dataset::VerticalDataset ds;
+//   ds.set_data_spec(spec);
+//   CHECK_OK(ds.CreateColumnsFromDataspec());
+//   ds.Resize(rows);
+// #pragma omp parallel for schedule(static)
+//   for (int c = 0; c < cols; ++c) {
+//     std::seed_seq seq{seed + static_cast<uint32_t>(c)};
+//     absl::BitGen gen(seq);
+//     auto* col =
+//         ds.MutableColumnWithCast<
+//             dataset::VerticalDataset::NumericalColumn>(c)->mutable_values();
+//     for (auto& v : *col) v = absl::Gaussian<float>(gen);
+//   }
+//   // labels: round-robin 0,1,…
+//   auto* ycol = ds.MutableColumnWithCast<
+//       dataset::VerticalDataset::CategoricalColumn>(cols);
+//   auto* yval = ycol->mutable_values();
+//   for (int64_t i = 0; i < rows; ++i) (*yval)[i] = static_cast<int>((i & 1) + 1);    // 1 or 2, not 0/1
+//   return ds;
+// }
 
 // -------------------------------------------------------------------- trunk
 dataset::VerticalDataset MakeTrunkDataset(const dataset::proto::DataSpecification& spec,
@@ -149,6 +147,7 @@ dataset::VerticalDataset MakeTrunkDataset(const dataset::proto::DataSpecificatio
   ds.set_data_spec(spec);
   CHECK_OK(ds.CreateColumnsFromDataspec());
   ds.Resize(rows);
+  using RNG = std::minstd_rand;
 
   constexpr int kNInformative = 256;
   const int ninform = std::min(kNInformative, cols);
@@ -162,25 +161,25 @@ dataset::VerticalDataset MakeTrunkDataset(const dataset::proto::DataSpecificatio
   }
 
   // Fill the feature columns -------------------------------------------------
-#pragma omp parallel for schedule(static)
   for (int j = 0; j < cols; ++j) {
-    std::seed_seq seq{seed + static_cast<uint32_t>(j)};
-    absl::BitGen gen(seq);
+    // Deterministic per-column seed
+    std::seed_seq seq{seed, static_cast<uint32_t>(j)};
+    RNG rng(seq);
+    std::normal_distribution<float> normal(0.0f, 1.0f);
 
     auto* col = ds.MutableColumnWithCast<
         dataset::VerticalDataset::NumericalColumn>(j)->mutable_values();
 
     for (int64_t i = 0; i < rows; ++i) {
-      const bool cls1 = (i >= rows / 2);                // second half ⇒ class 2
+      const bool cls1 = (i >= rows / 2);
       const float mean = cls1 ? mu1[j] : mu0[j];
-      (*col)[i] = mean + absl::Gaussian<float>(gen);
+      (*col)[i] = mean + normal(rng);
     }
   }
 
   // Fill the label column ----------------------------------------------------
   auto* y = ds.MutableColumnWithCast<
       dataset::VerticalDataset::CategoricalColumn>(cols)->mutable_values();
-#pragma omp parallel for schedule(static)
   for (int64_t i = 0; i < rows; ++i)
     (*y)[i] = (i >= rows / 2) ? 2 : 1;                  // 1-based labels
 
@@ -191,7 +190,7 @@ dataset::VerticalDataset BuildSyntheticDataset(
         const std::string& mode,
         const dataset::proto::DataSpecification& spec,
         int64_t rows, int cols, uint32_t seed) {
-  if (mode == "uniform") return MakeUniformDataset(spec, rows, cols, seed);
+  // if (mode == "uniform") return MakeUniformDataset(spec, rows, cols, seed);
   if (mode == "trunk")   return MakeTrunkDataset(spec, rows, cols, seed);
   LOG(FATAL) << "Unknown synthetic mode: " << mode;
   return {};  // never reached
