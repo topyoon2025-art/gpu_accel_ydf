@@ -221,9 +221,12 @@ if __name__ == "__main__":
     if a.tree_depth is not None:
         cmd.append(f"--tree_depth={a.tree_depth}")
 
-    cmd.append("--numerical_split_type=Exact"
-               if (a.numerical_split_type == "Dynamic Random Histogramming" or a.numerical_split_type == "Dynamic Equal Width Histogramming")
-               else f"--numerical_split_type={a.numerical_split_type}")
+    if (a.numerical_split_type == "Dynamic Random Histogramming" or a.numerical_split_type == "Dynamic Equal Width Histogramming"):
+        cmd.append("--numerical_split_type=Exact")
+    elif a.numerical_split_type == "Vectorized Random":
+        cmd.append("--numerical_split_type=Random")
+    else:
+        cmd.append(f"--numerical_split_type={a.numerical_split_type}")
  
 
     # Use CSV filename (without extension) if using CSV input, otherwise use matrix dimensions

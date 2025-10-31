@@ -26,7 +26,7 @@ def get_base_parser():
                        choices=["Axis Aligned", "Oblique"])
     parser.add_argument("--numerical_split_type", default="Exact",
                        choices=["Exact", "Random", "Equal Width", "Subsample Points", "Subsample Histogram", 
-                                # "Vectorized Random",
+                                "Vectorized Random",
                                 "Dynamic Random Histogramming", "Dynamic Equal Width Histogramming"])
     parser.add_argument("--tree_depth", type=int)
     parser.add_argument("--num_threads", type=int, required=True)
@@ -100,14 +100,17 @@ def build_binary(args, chrono_mode):
         finished_cmd.append('--config=enable_dynamic_random_histogramming')
     elif args.numerical_split_type == "Dynamic Equal Width Histogramming":
         finished_cmd.append('--config=enable_dynamic_equal_width_histogramming')
+    elif args.numerical_split_type == "Vectorized Random":
+        finished_cmd.append('--config=enable_std_upper_bound_vectorization')
+        
     if args.sample_projection_mode == "Slow":
         finished_cmd.append('--config=slow_sample_projections')
     
     if chrono_mode:
         finished_cmd.append('--config=multithreaded_chrono_profile')
 
-    if args.enable_fast_equal_width_binning:
-        finished_cmd.append('--config=enable_fast_equal_width_binning')
+    # if args.enable_fast_equal_width_binning:
+    #     finished_cmd.append('--config=enable_fast_equal_width_binning')
         
     finished_cmd.append("--ui_event_filters=-warning")
     finished_cmd.append('//examples:train_oblique_forest')
