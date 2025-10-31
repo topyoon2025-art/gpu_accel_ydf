@@ -289,7 +289,8 @@ if __name__ == "__main__":
         # ------------------------------------------------------------------
         #  >>>  NEW: build file name from arguments instead of wall-time
         # ------------------------------------------------------------------
-        fname  = f"{a.tree_depth}Depth-{a.num_threads}Threads.csv"
+        d = -1 if a.tree_depth is None else a.tree_depth
+        fname  = f"{d}Depth-{a.num_threads}Threads.csv"
         out_fp = out_dir / fname
 
         cmd_lines = [
