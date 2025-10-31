@@ -5720,7 +5720,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       absl::btree_set<size_t> picked_idx;
 
       // Floyd's sampler to select k indices uniformly
-      for (auto j = n_total_points - n_sampled_points; j < n_sampled_points;
+      for (auto j = n_total_points - n_sampled_points; j < n_total_points;
           ++j) {
           const auto t = absl::Uniform<size_t>(*random, 0, j + 1);
           if (!picked_idx.insert(t).second) picked_idx.insert(j);
