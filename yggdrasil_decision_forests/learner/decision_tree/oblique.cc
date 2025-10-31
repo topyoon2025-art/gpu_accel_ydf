@@ -1250,11 +1250,13 @@ absl::Status ProjectionEvaluator::Evaluate(
 
     float value = 0.f;
 
-    // 0,2,2,5
+    // selected_examples = bag := 0,2,2,5
     const auto example_idx = selected_examples[selected_idx];
 
     for (const auto& item : projection) {
+      // attribute_values = actual raw data
       const auto* attribute_values = numerical_attributes_[item.attribute_idx];
+      // Select the bag index out of the raw data
       float attribute_value = (*attribute_values)[example_idx];
       if (std::isnan(attribute_value)) {
         attribute_value = na_replacement_value_[item.attribute_idx];
@@ -1263,6 +1265,7 @@ absl::Status ProjectionEvaluator::Evaluate(
     }
 
     // selected_idx is doing the bootstrapping, that's why values is indexed by selected_idx and attributes by example_idx
+    // values will be in "bootstrap" space
     (*values)[selected_idx] = value;
 
     // Single-instruction min/max – no branches, tiny latency.

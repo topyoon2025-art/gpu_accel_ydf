@@ -2463,6 +2463,7 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
   if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
     // Equal Width histograms can be filled in O(n) by using bin arithmetic to assign samples to bins
     for (const auto example_idx : selected_examples) {
+      // TODO why are labels and attributes indexed in the same space? attributes was re-written
     const int32_t label = labels[example_idx];
     // TODO Ariel create unweighted & unbranched version
     const float weight = weights.empty() ? 1.f : weights[example_idx];
