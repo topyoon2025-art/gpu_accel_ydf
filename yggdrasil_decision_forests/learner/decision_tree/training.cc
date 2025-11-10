@@ -2294,7 +2294,6 @@ if (dt_config.missing_value_policy() ==
                                        &na_replacement);
 }
   }
-    /* #endregion */
 
 // Determine the minimum and maximum values of the attribute
 // TODO How expensive is this? Why not get it for free from ApplyProjection()?
@@ -2305,12 +2304,12 @@ if (dt_config.missing_value_policy() ==
 // { return SplitSearchResult::kInvalidAttribute; }
 // There should be at least two different unique values.
 if (*min_value == *max_value) { return SplitSearchResult::kInvalidAttribute; }
+/* #endregion */
 
 
 std::vector<float> bins;
 std::vector<size_t> subsampled_idx;
 std::vector<internal::CandidateSplit> candidate_splits(dt_config.numerical_split().num_candidates());
-
 
 // Build with -mavx2 or -mavx512f as appropriate.
 // Thresholds must be sorted ascending, like your candidate_splits[].threshold.
@@ -2462,6 +2461,7 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
   // Move if outside loop to remove in-loop branches. Helps vectorization
   if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
     // Equal Width histograms can be filled in O(n) by using bin arithmetic to assign samples to bins
+    // TODO Ariel turn this into for i = 0, i < size(); i++) - should vectorize. Compiler doesn't know selected_examples is dense
     for (const auto example_idx : selected_examples) {
       // TODO why are labels and attributes indexed in the same space? attributes was re-written
     const int32_t label = labels[example_idx];
@@ -2537,6 +2537,7 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
   }
 }
 }
+// TODO Experiment: Replace w/ existing Random Histogram sampling to test Subsample Hist Acc.
 else { // Subsample data and use only those points as "bins"
   ASSIGN_OR_RETURN(
     candidate_splits, // Select some threshold values
@@ -2552,7 +2553,7 @@ else { // Subsample data and use only those points as "bins"
 }
 
 
-/* #region Finalization - takes no time */
+/* #region Finalization - Select Thresholds takes a lot of time */
 double initial_entropy;
 utils::BinaryToIntegerConfusionMatrixDouble confusion;
 {
@@ -2567,14 +2568,11 @@ bool found_split = false;
    CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kSelectBestThresholdHistogram);
 for (auto &candidate_split : candidate_splits)
 {
- 
   if (selected_examples.size() -
               candidate_split.num_positive_examples_without_weights <
           min_num_obs ||
       candidate_split.num_positive_examples_without_weights < min_num_obs)
-  {
-    continue;
-  }
+  { continue; }
 
   confusion.mutable_neg()->Set(label_distribution);
   confusion.mutable_neg()->Sub(candidate_split.pos_label_distribution);
@@ -2582,8 +2580,7 @@ for (auto &candidate_split : candidate_splits)
 
   const double final_entropy = confusion.FinalEntropy();
   const double information_gain = initial_entropy - final_entropy;
-  if (information_gain > condition->split_score())
-  {
+  if (information_gain > condition->split_score()) {
     condition->set_split_score(information_gain);
     condition->mutable_condition()->mutable_higher_condition()->set_threshold(
         candidate_split.threshold);
@@ -5761,6 +5758,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       // Populate "histograms" with 1 sample per bin
       for (int i = 0; i < n_points; ++i) {
         const auto ex = selected_examples[picked[i]];
+
         candidate_splits[i].threshold = attributes[ex];
         candidate_splits[i].num_positive_examples_without_weights = 1;
         candidate_splits[i].pos_label_distribution.SetNumClasses(num_label_classes);
@@ -5775,6 +5773,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
             candidate_splits[i + 1].num_positive_examples_without_weights;
         candidate_splits[i].pos_label_distribution.Add(candidate_splits[i + 1].pos_label_distribution);
       }
+
+      // TODO here instead return Random Histogram candidate splits:
+      //    Tests 
       
       return candidate_splits;
     }
@@ -5813,6 +5814,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
 
         int i = 0;
         for (const auto picked_idx : picked_idxs) {
+          // TODO why are we assigning index here??? assign attributes[picked_idx]
           candidate_splits[i] = picked_idx;
           i++;
         }
