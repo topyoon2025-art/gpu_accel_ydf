@@ -5815,7 +5815,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         int i = 0;
         for (const auto picked_idx : picked_idxs) {
           // TODO why are we assigning index here??? assign attributes[picked_idx]
-          candidate_splits[i] = picked_idx;
+          candidate_splits[i] = attributes[picked_idx];
           i++;
         }
         // In Equal Width, these are produced already sorted
