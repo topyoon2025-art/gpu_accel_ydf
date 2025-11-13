@@ -415,7 +415,7 @@ int main(int argc, char** argv) {
   }
    else {
     std::cerr << "Unknown histogram type: " << hist_type 
-              << ". Use 'Exact', 'Random', 'Equal Width', 'Subsample Points' or 'Subsample Histogram'.\n";
+              << ". Use 'Exact', 'Random', 'Equal Width', 'Subsample Points', 'Subsample Histogram', 'Dynamic Equal Width Histogram' or 'Dynamic Random Histogram'.\n";
     return 1;
   }
 
