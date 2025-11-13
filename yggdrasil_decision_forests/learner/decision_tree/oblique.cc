@@ -220,20 +220,17 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   if constexpr (HARD_CODE_1000_PROJECTIONS) { num_projections = 1000; }
 
   /* #endregion */
-
-  proto::DecisionTreeTrainingConfig new_dt_config = dt_config; // TODO pick better name
   
+  proto::DecisionTreeTrainingConfig dynamic_dt_config = dt_config;
+
   // Automatically swap betw. Histogramming and Sorting based on which is faster for given amount of data
-  if constexpr (ENABLE_DYNAMIC_HISTOGRAMMING != 0) {
-    // Magic number - chosen empirically https://docs.google.com/spreadsheets/d/1k0Td119py6Z_crJPdpt6iggWten86KRtYqSrQmcHhJM/edit?usp=sharing
-    if (dense_example_idxs.size() > 1536) {
-      if constexpr (ENABLE_DYNAMIC_HISTOGRAMMING == 2)
-        new_dt_config.mutable_numerical_split()->set_type(yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_HISTOGRAM_RANDOM);
-      else if (ENABLE_DYNAMIC_HISTOGRAMMING == 1)
-       new_dt_config.mutable_numerical_split()->set_type(yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_HISTOGRAM_EQUAL_WIDTH);
-      
-      new_dt_config.mutable_numerical_split()->set_num_candidates(256);
-    }
+  // Magic number - chosen empirically https://docs.google.com/spreadsheets/d/1k0Td119py6Z_crJPdpt6iggWten86KRtYqSrQmcHhJM/edit?usp=sharing
+  if (dense_example_idxs.size() < 1536
+    && (dt_config.numerical_split().type() == yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM
+  || dt_config.numerical_split().type() == yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM)
+) {
+    // Data is too small, making Histogramming inefficient. Switch to Exact
+    dynamic_dt_config.mutable_numerical_split()->set_type(yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_EXACT);
   }
 
   // std::cout << "Num Projections: " << num_projections << std::endl;
@@ -242,7 +239,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
       int8_t monotonic = 0;
 
-      SampleProjection(config_link.numerical_features(), new_dt_config,
+      SampleProjection(config_link.numerical_features(), dynamic_dt_config,
                       train_dataset.data_spec(), config_link, projection_density,
                       &current_projection, &monotonic, random);
 
@@ -268,7 +265,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
       ASSIGN_OR_RETURN(
           const auto split_result,
-          EvaluateProjection(new_dt_config, label_stats, dense_example_idxs, selected_weights,
+          EvaluateProjection(dynamic_dt_config, label_stats, dense_example_idxs, selected_weights,
                             selected_labels, projection_values, &min_value, &max_value, internal_config,
                             current_projection.front().attribute_idx,
                             constraints, monotonic,

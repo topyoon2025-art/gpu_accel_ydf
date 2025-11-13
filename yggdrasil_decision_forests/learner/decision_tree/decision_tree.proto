@@ -501,7 +501,11 @@ message NumericalSplit {
     // Subsample K points, but use those to build a regular histogram. O(n)
     SUBSAMPLE_HISTOGRAM = 4;
 
-    reserved 5;
+    DYNAMIC_RANDOM_HISTOGRAM = 5;
+
+    DYNAMIC_EQUAL_WIDTH_HISTOGRAM = 6;
+
+    reserved 7;
   }
 
   optional Type type = 1 [default = EXACT];

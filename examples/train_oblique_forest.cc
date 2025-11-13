@@ -76,7 +76,7 @@ ABSL_FLAG(uint32_t, seed, 1234,
 
 // Histogram-based splits - Updated to match Yggdrasil implementation
 ABSL_FLAG(std::string, numerical_split_type, "Exact",
-          "Type of histogram splitting: 'Exact (no histogramming)', 'Random', 'Equal Width', 'Subsample Points' or 'Subsample Histogram'.");
+          "Type of histogram splitting: 'Exact (no histogramming)', 'Random', 'Equal Width', 'Subsample Points', 'Subsample Histogram', 'Dynamic Random Histogram' or 'Dynamic Equal Width Histogram.");
 ABSL_FLAG(int, histogram_num_bins, 256,
           "Number of bins for histogram splitting.");
 
@@ -400,7 +400,20 @@ int main(int argc, char** argv) {
     numerical_split->set_num_candidates(absl::GetFlag(FLAGS_histogram_num_bins));
     std::cout << "Using Subsample splitting with " 
               << absl::GetFlag(FLAGS_histogram_num_bins) << " samples\n";
-  } else {
+  } else if (hist_type == "Dynamic Random Histogram") {
+    numerical_split->set_type(
+    model::decision_tree::proto::NumericalSplit::DYNAMIC_RANDOM_HISTOGRAM);
+    numerical_split->set_num_candidates(absl::GetFlag(FLAGS_histogram_num_bins));
+    std::cout << "Using " << hist_type << " with " 
+              << absl::GetFlag(FLAGS_histogram_num_bins) << " samples\n";
+  } else if (hist_type == "Dynamic Equal Width Histogram") {
+    numerical_split->set_type(
+        model::decision_tree::proto::NumericalSplit::DYNAMIC_EQUAL_WIDTH_HISTOGRAM);
+    numerical_split->set_num_candidates(absl::GetFlag(FLAGS_histogram_num_bins));
+    std::cout << "Using " << hist_type << " with " 
+              << absl::GetFlag(FLAGS_histogram_num_bins) << " samples\n";
+  }
+   else {
     std::cerr << "Unknown histogram type: " << hist_type 
               << ". Use 'Exact', 'Random', 'Equal Width', 'Subsample Points' or 'Subsample Histogram'.\n";
     return 1;

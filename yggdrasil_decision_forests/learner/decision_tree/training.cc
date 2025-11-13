@@ -2459,7 +2459,8 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
   CHRONO_SCOPE(::yggdrasil_decision_forests::chrono_prof::kAssignSamplesToHistogram);
 
   // Move if outside loop to remove in-loop branches. Helps vectorization
-  if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
+  if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH
+|| dt_config.numerical_split().type() == proto::NumericalSplit::DYNAMIC_EQUAL_WIDTH_HISTOGRAM) {
     // Equal Width histograms can be filled in O(n) by using bin arithmetic to assign samples to bins
     // TODO Ariel turn this into for i = 0, i < size(); i++) - should vectorize. Compiler doesn't know selected_examples is dense
     for (const auto example_idx : selected_examples) {
@@ -5794,6 +5795,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       switch (type)
       {
       case proto::NumericalSplit::HISTOGRAM_RANDOM:
+      case proto::NumericalSplit::DYNAMIC_RANDOM_HISTOGRAM:
       {
         std::uniform_real_distribution<float> threshold_distribution(min_value,
                                                                      max_value);
@@ -5823,6 +5825,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       }
       break;
       case proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH:
+      case proto::NumericalSplit::DYNAMIC_EQUAL_WIDTH_HISTOGRAM:
       {
         for (int split_idx = 0; split_idx < candidate_splits.size();
              split_idx++)

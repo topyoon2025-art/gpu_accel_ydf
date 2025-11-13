@@ -37,8 +37,6 @@ build:print_projection_matrices --cxxopt="-DPRINT_PROJECTION_MATRICES_FLAG=1"
 build:fixed_1000_projections --cxxopt="-DHARD_CODE_1000_PROJECTIONS_FLAG=true"
 
 # Optimizations
-build:enable_dynamic_equal_width_histogramming --cxxopt="-DENABLE_DYNAMIC_HISTOGRAMMING_FLAG=1"
-build:enable_dynamic_random_histogramming --cxxopt="-DENABLE_DYNAMIC_HISTOGRAMMING_FLAG=2"
 build:enable_std_upper_bound_vectorization --cxxopt="-mavx2" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"
 
 
