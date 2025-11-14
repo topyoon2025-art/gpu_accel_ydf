@@ -97,7 +97,7 @@ printf "\n\n--------Running all $numerical_split_type w/ $histogram_num_bins 2>&
 
 ./bazel-bin/examples/train_oblique_forest --input_mode trunk --rows 10000 --num_trees 100 --num_threads -1 --numerical_split_type "$numerical_split_type" --histogram_num_bins $histogram_num_bins 2>&1 | tee -a "$logfile"
 ./bazel-bin/examples/train_oblique_forest --input_mode trunk --rows 100000 --num_trees 100 --num_threads -1 --numerical_split_type "$numerical_split_type" --histogram_num_bins $histogram_num_bins 2>&1 | tee -a "$logfile"
-# ./bazel-bin/examples/train_oblique_forest --input_mode trunk --rows 1000000 --num_trees 100 --num_threads -1 --numerical_split_type "$numerical_split_type" --histogram_num_bins $histogram_num_bins 2>&1 | tee -a "$logfile"
+./bazel-bin/examples/train_oblique_forest --input_mode trunk --rows 1000000 --num_trees 100 --num_threads -1 --numerical_split_type "$numerical_split_type" --histogram_num_bins $histogram_num_bins 2>&1 | tee -a "$logfile"
 
 
 numerical_split_type="Dynamic Random Histogram"
