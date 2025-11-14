@@ -32,7 +32,7 @@
 ABSL_FLAG(std::string, input_mode, "",
           "Data input mode: csv, Uniform synthetic, Trunk Synthetic, or tfrecord.");
 // CSV mode flags
-ABSL_FLAG(std::string, train_csv, "/home/ariel/prog/yggdrasil-oblique-forests/benchmarks/data/processed_wise1_data.csv",
+ABSL_FLAG(std::string, train_csv, "./benchmarks/data/processed_wise1_data.csv",
           "Path to training CSV file (for csv mode). Must include --label_col.");
 // TFRecord mode flags
 ABSL_FLAG(std::string, ds_path, "",
