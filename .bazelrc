@@ -37,7 +37,8 @@ build:print_projection_matrices --cxxopt="-DPRINT_PROJECTION_MATRICES_FLAG=1"
 build:fixed_1000_projections --cxxopt="-DHARD_CODE_1000_PROJECTIONS_FLAG=true"
 
 # Optimizations
-build:enable_std_upper_bound_vectorization --cxxopt="-mavx2" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"
+build:enable_std_upper_bound_avx2 --cxxopt="-mavx2" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"
+build:enable_std_upper_bound_avx512 --cxxopt="-mavx512f" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"
 
 
 # Bazel configuration for Yggdrasil Decision Forests
