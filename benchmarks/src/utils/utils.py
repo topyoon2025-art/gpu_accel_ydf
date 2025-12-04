@@ -26,8 +26,8 @@ def get_base_parser():
                        choices=["Axis Aligned", "Oblique"])
     parser.add_argument("--numerical_split_type", default="Exact",
                        choices=["Exact", "Random", "Equal Width", "Subsample Points", "Subsample Histogram", 
-                                "Vectorized Random",
-                                "Dynamic Random Histogramming", "Dynamic Equal Width Histogramming"])
+                                "Dynamic Random Histogram", "Dynamic Equal Width Histogram"])
+    parser.add_argument("--vectorized", choices=[None, "avx2", "avx512"], default=None)
     parser.add_argument("--tree_depth", type=int, default=-1)
     parser.add_argument("--num_threads", type=int, default=1)
     parser.add_argument("--num_trees", type=int, default=1)  # Note: different defaults in your files
@@ -99,12 +99,10 @@ def build_binary(args, chrono_mode):
         base_cmd.append('--config=fixed_1000_projections')
     finished_cmd = base_cmd[:] # ← work on a copy
 
-    if args.numerical_split_type == "Dynamic Random Histogramming":
-        finished_cmd.append('--config=enable_dynamic_random_histogramming')
-    elif args.numerical_split_type == "Dynamic Equal Width Histogramming":
-        finished_cmd.append('--config=enable_dynamic_equal_width_histogramming')
-    elif args.numerical_split_type == "Vectorized Random":
-        finished_cmd.append('--config=enable_std_upper_bound_vectorization')
+    if args.vectorized == "avx2":
+        finished_cmd.append('--config=enable_std_upper_bound_avx2')
+    elif args.vectorized == "avx512":
+        finished_cmd.append('--config=enable_std_upper_bound_avx512')
         
     if args.sample_projection_mode == "Slow":
         finished_cmd.append('--config=slow_sample_projections')
