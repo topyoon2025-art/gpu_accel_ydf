@@ -16,3 +16,4 @@ jupyter_notebooks/jupyter_env/
 intel_advisor_profile_results/*
 **/.venv/
 benchmarks/data/jovo_50m
+accuracy_runtime*

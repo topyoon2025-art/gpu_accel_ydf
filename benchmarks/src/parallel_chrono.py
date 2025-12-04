@@ -27,9 +27,6 @@ def get_args():
     p.add_argument("--save_log", action="store_true")
     p.add_argument("--skip_build", help="Skip building target. Use whatever's in .bazel-bin", action="store_true")
     
-    # Override defaults if needed
-    p.set_defaults(num_trees=5)  # This script uses 5 trees by default
-    
     return p.parse_args()
 
 
