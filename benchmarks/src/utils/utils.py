@@ -34,6 +34,7 @@ def get_base_parser():
     parser.add_argument("--projection_density_factor", type=int)
     parser.add_argument("--max_num_projections", type=int)
     parser.add_argument("--sample_projection_mode", choices=["Fast", "Slow"], default="Fast")
+    parser.add_argument("--fixed_1000_projections", action="store_true")
     # parser.add_argument("--enable_fast_equal_width_binning", action="store_true") # This is on by default now
     
     return parser
@@ -93,7 +94,9 @@ def build_binary(args, chrono_mode):
     """Build the binary using bazel. Returns True if successful, False otherwise."""
     
     base_cmd = ['bazel', 'build', '--ui_event_filters=-warning',
-                '-c', 'opt', '--config=fixed_1000_projections']
+                '-c', 'opt']
+    if args.fixed_1000_projections:
+        base_cmd.append('--config=fixed_1000_projections')
     finished_cmd = base_cmd[:] # ← work on a copy
 
     if args.numerical_split_type == "Dynamic Random Histogramming":
