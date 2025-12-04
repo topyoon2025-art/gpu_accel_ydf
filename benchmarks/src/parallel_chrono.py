@@ -22,6 +22,7 @@ def get_args():
     p = argparse.ArgumentParser(parents=[parent_parser])
     
     # Add script-specific arguments
+    p.add_argument("--histogram_num_bins", type=int, default=64)
     p.add_argument("--rows", type=int, default=4096)
     p.add_argument("--cols", type=int, default=4096)
     p.add_argument("--save_log", action="store_true")
@@ -207,7 +208,8 @@ if __name__ == "__main__":
     cmd = ["./bazel-bin/examples/train_oblique_forest",
            f"--num_trees={a.num_trees}",
            f"--feature_split_type={a.feature_split_type}",
-           f"--compute_oob_performances=false"]
+           "--compute_oob_performances=false",
+           f"--histogram_num_bins={a.histogram_num_bins}"]
     
     if a.max_num_projections is not None:
         cmd.append(f"--max_num_projections={a.max_num_projections}")
