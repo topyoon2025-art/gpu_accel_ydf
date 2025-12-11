@@ -225,7 +225,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   // Automatically swap betw. Histogramming and Sorting based on which is faster for given amount of data
   // Magic number - chosen empirically https://docs.google.com/spreadsheets/d/1k0Td119py6Z_crJPdpt6iggWten86KRtYqSrQmcHhJM/edit?usp=sharing
-  if (dense_example_idxs.size() < 1536
+  if (dense_example_idxs.size() < 350
     && (dt_config.numerical_split().type() == yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM
   || dt_config.numerical_split().type() == yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM)
 ) {

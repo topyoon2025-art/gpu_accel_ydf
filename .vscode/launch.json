@@ -196,21 +196,14 @@
       ]
     },
     {
-      "name": "Synthetic 4096x4096 Parallel",
+      "name": "Synthetic 4096x4096 Axis-Aligned",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bazel-bin/examples/train_oblique_forest",
       "args": [
-        "--input_mode",
-        "synthetic",
-        "--cols",
-        "4096",
-        "--rows",
-        "4096",
-        "--projection_density_factor",
-        "3",
-        "--num_threads=3",
-        "--num_trees=5"
+        "--input_mode=trunk",
+        "--rows=4096",
+        "--feature_split_type=Axis Aligned"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
