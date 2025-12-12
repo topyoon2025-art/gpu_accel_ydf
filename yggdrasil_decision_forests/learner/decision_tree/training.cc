@@ -528,7 +528,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
       {
         ASSIGN_OR_RETURN(
             result, FindSplitLabelClassificationFeatureNumericalHistogram(
-                        selected_examples, weights, attribute_data->values(), nullptr, nullptr,
+                        selected_examples, weights, attribute_data->values(), 
                         label_stats.label_data, label_stats.num_label_classes,
                         na_replacement, min_num_obs, dt_config,
                         label_stats.label_distribution, attribute_idx, random,
@@ -2269,8 +2269,6 @@ absl::StatusOr<SplitSearchResult>
 FindSplitLabelClassificationFeatureNumericalHistogram(
 const absl::Span<const UnsignedExampleIdx> selected_examples,
 const std::vector<float> &weights, const absl::Span<const float> attributes,
-const float* min_value,
-const float* max_value,
 const std::vector<int32_t> &labels, const int32_t num_label_classes,
 float na_replacement, const UnsignedExampleIdx min_num_obs,
 const proto::DecisionTreeTrainingConfig &dt_config,
@@ -2295,6 +2293,13 @@ if (dt_config.missing_value_policy() ==
 }
   }
 
+  float min_value, max_value;
+  // Ariel: Doing this in ApplyProjection is no faster
+  if (!MinMaxNumericalAttribute(selected_examples, attributes, &min_value,
+                                &max_value)) {
+    return SplitSearchResult::kInvalidAttribute;
+  }
+
 // Determine the minimum and maximum values of the attribute
 // TODO How expensive is this? Why not get it for free from ApplyProjection()?
 // float min_value, max_value;
@@ -2303,7 +2308,7 @@ if (dt_config.missing_value_policy() ==
 //                               &max_value))
 // { return SplitSearchResult::kInvalidAttribute; }
 // There should be at least two different unique values.
-if (*min_value == *max_value) { return SplitSearchResult::kInvalidAttribute; }
+if (min_value == max_value) { return SplitSearchResult::kInvalidAttribute; }
 /* #endregion */
 
 
@@ -2429,7 +2434,7 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
           selected_examples.size(),
           dt_config.numerical_split().type(),
                                   dt_config.numerical_split().num_candidates(),
-                                  attributes, *min_value, *max_value, random
+                                  attributes, min_value, max_value, random
   ));
     
   SIMDUpperBoundBins bins_accel;
@@ -2476,7 +2481,7 @@ if (dt_config.numerical_split().type() != proto::NumericalSplit::SUBSAMPLE_POINT
     
     // TODO Ariel condition this on only Equal Width binning! Testin this for vectorization
       const int idx = EqualWidthThresholdIndex(
-      attribute, *min_value, *max_value, candidate_splits.size());
+      attribute, min_value, max_value, candidate_splits.size());
       
       // Matches the original behavior when upper_bound(...) == begin()
       if (idx < 0) { continue; }

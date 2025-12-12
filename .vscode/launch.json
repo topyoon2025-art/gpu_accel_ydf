@@ -203,7 +203,8 @@
       "args": [
         "--input_mode=trunk",
         "--rows=4096",
-        "--feature_split_type=Axis Aligned"
+        "--feature_split_type=Axis Aligned",
+        "--numerical_split_type=Random"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",

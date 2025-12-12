@@ -266,7 +266,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       ASSIGN_OR_RETURN(
           const auto split_result,
           EvaluateProjection(dynamic_dt_config, label_stats, dense_example_idxs, selected_weights,
-                            selected_labels, projection_values, &min_value, &max_value, internal_config,
+                            selected_labels, projection_values, internal_config,
                             current_projection.front().attribute_idx,
                             constraints, monotonic,
                             best_condition, cache, random// random needed for Histogramming
@@ -323,8 +323,6 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
     const absl::Span<const UnsignedExampleIdx> dense_example_idxs,
     const std::vector<float>& selected_weights, const Labels& selected_labels,
     const absl::Span<const float> projection_values,
-    const float* min_value,
-    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -364,7 +362,7 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
       ASSIGN_OR_RETURN(
           result,
           FindSplitLabelClassificationFeatureNumericalHistogram(
-              dense_example_idxs, selected_weights, projection_values, min_value, max_value,
+              dense_example_idxs, selected_weights, projection_values,
               selected_labels, label_stats.num_label_classes, na_replacement,
               min_num_obs, dt_config, label_stats.label_distribution,
               first_attribute_idx, random, condition));
@@ -437,8 +435,6 @@ EvaluateProjection<ClassificationLabelStats, std::vector<int32_t>>(
     const std::vector<float>& selected_weights,
     const std::vector<int32_t>& selected_labels,
     const absl::Span<const float> projection_values,
-    const float* min_value,
-    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -452,8 +448,6 @@ EvaluateProjection<RegressionLabelStats, std::vector<float>>(
     const std::vector<float>& selected_weights,
     const std::vector<float>& selected_labels,
     const absl::Span<const float> projection_values,
-    const float* min_value,
-    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -467,8 +461,6 @@ EvaluateProjection<RegressionHessianLabelStats, GradientAndHessian>(
     const std::vector<float>& selected_weights,
     const GradientAndHessian& selected_labels,
     const absl::Span<const float> projection_values,
-    const float* min_value,
-    const float* max_value,
     const InternalTrainConfig& internal_config, const int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache,
@@ -490,7 +482,7 @@ absl::Status EvaluateProjectionAndSetCondition(
   ASSIGN_OR_RETURN(
       const auto result,
       EvaluateProjection(dt_config, label_stats, dense_example_idxs,
-                         selected_weights, selected_labels, projection_values, nullptr, nullptr,
+                         selected_weights, selected_labels, projection_values,
                          internal_config, first_attribute_idx,
                          /*constraints=*/{}, /*monotonic_direction=*/0,
                          condition, cache, random));

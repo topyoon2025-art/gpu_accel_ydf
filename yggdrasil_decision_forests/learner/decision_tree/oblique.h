@@ -146,8 +146,6 @@ absl::StatusOr<SplitSearchResult> EvaluateProjection(
     absl::Span<const UnsignedExampleIdx> dense_example_idxs,
     const std::vector<float>& selected_weights, const Labels& selected_labels,
     absl::Span<const float> projection_values,
-    const float* min_value,
-    const float* max_value,
     const InternalTrainConfig& internal_config, int first_attribute_idx,
     const NodeConstraints& constraints, int8_t monotonic_direction,
     proto::NodeCondition* condition, SplitterPerThreadCache* cache, utils::RandomEngine* random);
