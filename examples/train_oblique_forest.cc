@@ -357,6 +357,7 @@ int main(int argc, char** argv) {
         absl::GetFlag(FLAGS_num_projections_exponent));
   } else if (feature_split_type == "Axis Aligned") {
     std::cout << "Using axis-aligned splits (default behavior)\n";
+    rf.mutable_decision_tree()->set_num_candidate_attributes(sqrt(absl::GetFlag(FLAGS_cols)) * 1.5);
     // No additional configuration needed for axis-aligned splits
   } else {
     std::cerr << "Unknown feature_split_type: " << feature_split_type 
