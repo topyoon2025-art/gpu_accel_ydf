@@ -1,5 +1,6 @@
 // Online C++ compiler to run C++ program online
-
+#include <cuda.h>
+#include <cstddef>  // for std::size_t
 
 #include <iostream>
 #include <vector>
@@ -19,7 +20,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cstring>
-#include "randomprojection.hpp"
+// #include "randomprojection.hpp"
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
@@ -29,10 +30,10 @@
 #include <cub/cub.cuh>
 #include <cub/device/device_scan.cuh>
 #include <vector_types.h>
-#include "absl/container/btree_set.h"
-#include "absl/log/log.h"
-#include "absl/status/status.h"
-#include "absl/status/statusor.h"
+// #include "absl/container/btree_set.h"
+// #include "absl/log/log.h"
+// #include "absl/status/status.h"
+// #include "absl/status/statusor.h"
 #include <cub/device/device_segmented_reduce.cuh>
 #include <thrust/sequence.h>
 
@@ -47,6 +48,56 @@
             std::exit(EXIT_FAILURE);                                          \
         }                                                                     \
     } while (0)
+
+
+// Forward declarations
+__global__ void FindBestGiniSplitVariableWidthKernel(
+    const int* hist_class0,
+    const int* hist_class1,
+    const float* bin_boundaries,
+    const int num_proj,
+    const int num_bins,
+    float* gini_out_per_bin_per_proj,
+    float* threshold_out_per_bin_per_proj
+);
+
+void EqualWidthSplit(
+    const int* d_prefix_0,
+    const int* d_prefix_1,
+    const int* d_prefix_2,
+    const float* d_min_vals,
+    const float* d_bin_widths,
+    const int num_proj,
+    const int num_bins,
+    const int num_rows,
+    int* best_proj,
+    int* best_bin_out,
+    float* best_gain_out,
+    float* best_threshold_out,
+    int* num_pos_examples_out,
+    double* elapsed_ms,
+    const bool verbose,
+    const int comp_method
+);
+
+void BuildHistogramAndFindBestSplit(
+    const float* d_col_add_projected,
+    const unsigned int* d_selected_examples,
+    const unsigned int* d_global_labels_data,
+    float* d_min_vals,
+    float* d_max_vals,
+    float* d_bin_widths,
+    const int num_rows,
+    const int num_bins,
+    const int num_proj,
+    int* best_proj,
+    int* best_bin_out,
+    float* best_gain_out,
+    float* best_threshold_out,
+    int* num_pos_examples_out,
+    const bool use_variable_width,
+    const int comp_method
+);
 
 __global__ void warmup() {
     // Empty kernel for warm-up
@@ -458,6 +509,109 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
         CUDA_CHECK(cudaFree(d_block_min));
         CUDA_CHECK(cudaFree(d_block_max));
     }
+else if (split_method == 3) {  // Random Binary Search
+    const int total_blocks = num_proj * gridDim.x;
+    float* d_min_vals;
+    float* d_max_vals;
+    CUDA_CHECK(cudaMalloc(&d_min_vals, num_proj * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_max_vals, num_proj * sizeof(float)));
+    *d_min_vals_out = d_min_vals;
+    *d_max_vals_out = d_max_vals;
+    *d_bin_widths_out = nullptr;  // Not used for variable-width
+
+    float* d_block_min;
+    float* d_block_max;
+    CUDA_CHECK(cudaMalloc(&d_block_min, total_blocks * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_block_max, total_blocks * sizeof(float)));
+
+    size_t shmem = 2 * blockDim.x * sizeof(float);
+    
+    // Combined kernel that does projection and min/max computation
+    ColumnAddComputeMinMaxCombined<<<gridDim, blockDim, shmem>>>(
+        d_flat_data,
+        d_selected_examples,
+        d_col_add_projected,
+        d_offset,
+        d_flat_projection_col_idx,
+        d_flat_projection_weights,
+        num_selected_examples,
+        num_total_rows,
+        num_proj,
+        d_block_min,
+        d_block_max);
+    CUDA_CHECK(cudaPeekAtLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    // Use CUB to find final min/max per projection
+    cudaStream_t stream1 = 0;
+    thrust::device_vector<int> d_begin(num_proj);
+    thrust::device_vector<int> d_end(num_proj);
+
+    // Fill begin offsets: 0, num_blocks, 2*num_blocks, ...
+    thrust::sequence(d_begin.begin(), d_begin.end(), 0, (int)gridDim.x);
+
+    // Fill end offsets: num_blocks, 2*num_blocks, 3*num_blocks, ...
+    thrust::sequence(d_end.begin(), d_end.end(), (int)gridDim.x, (int)gridDim.x);
+
+    int* d_begin_ptr = thrust::raw_pointer_cast(d_begin.data());
+    int* d_end_ptr   = thrust::raw_pointer_cast(d_end.data());
+
+    // ====================================================================
+    // CUB: MIN per projection
+    // ====================================================================
+    void* d_temp = nullptr;
+    size_t temp_bytes = 0;
+
+    cub::DeviceSegmentedReduce::Min(
+        d_temp, temp_bytes,
+        d_block_min,
+        d_min_vals,
+        num_proj,
+        d_begin_ptr,
+        d_end_ptr,
+        stream1
+    );
+    cudaMalloc(&d_temp, temp_bytes);
+    cub::DeviceSegmentedReduce::Min(
+        d_temp, temp_bytes,
+        d_block_min,
+        d_min_vals,
+        num_proj,
+        d_begin_ptr,
+        d_end_ptr,
+        stream1
+    );
+    cudaFree(d_temp);
+
+    // ====================================================================
+    // CUB: MAX per projection
+    // ====================================================================
+    d_temp = nullptr;
+    temp_bytes = 0;
+    cub::DeviceSegmentedReduce::Max(
+        d_temp, temp_bytes,
+        d_block_max,
+        d_max_vals,
+        num_proj,
+        d_begin_ptr,
+        d_end_ptr,
+        stream1
+    );
+    cudaMalloc(&d_temp, temp_bytes);
+    cub::DeviceSegmentedReduce::Max(
+        d_temp, temp_bytes,
+        d_block_max,
+        d_max_vals,
+        num_proj,
+        d_begin_ptr,
+        d_end_ptr,
+        stream1
+    );
+    cudaFree(d_temp);
+    
+    CUDA_CHECK(cudaFree(d_block_min));
+    CUDA_CHECK(cudaFree(d_block_max));
+}
     
     // Free device memory
     CUDA_CHECK(cudaFree(d_offset));
@@ -498,6 +652,128 @@ __global__ void FinalMinMaxKernel(
                             ? (max_val - min_val) / (float)num_bins
                             : 1.0f;
 }
+
+
+// std::upper_bound not available on device. Thrust library has host-only
+__device__ int binary_search_upper_bound(const float* boundaries, int num_boundaries, float val) {
+    int left = 0;
+    int right = num_boundaries - 1;
+    
+    while (left < right) {
+        int mid = left + (right - left) / 2;
+        if (boundaries[mid] <= val) {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    return left;
+}
+
+// Add this function to generate random bin boundaries
+std::vector<float> generateRandomBinBoundaries(int num_bins, int num_proj, 
+                                                float* d_min_vals, float* d_max_vals) {
+    // Copy min/max values to host
+    std::vector<float> h_min_vals(num_proj);
+    std::vector<float> h_max_vals(num_proj);
+    cudaMemcpy(h_min_vals.data(), d_min_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_max_vals.data(), d_max_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost);
+    
+    // Generate random boundaries for each projection
+    std::vector<float> all_boundaries;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    
+    for (int p = 0; p < num_proj; ++p) {
+        float min_val = h_min_vals[p];
+        float max_val = h_max_vals[p];
+        
+        // Generate num_bins-1 random points in [0,1]
+        std::vector<float> boundaries;
+        boundaries.push_back(min_val);  // First boundary
+        
+        // Generate random points in [0,1] and scale to [min_val, max_val]
+        std::uniform_real_distribution<float> dis(0.0f, 1.0f);
+        std::vector<float> random_points;
+        for (int i = 0; i < num_bins - 1; ++i) {
+            random_points.push_back(dis(gen));
+        }
+        
+        // Sort the random points
+        std::sort(random_points.begin(), random_points.end());
+        
+        // Scale to actual range
+        for (float point : random_points) {
+            boundaries.push_back(min_val + point * (max_val - min_val));
+        }
+        
+        boundaries.push_back(max_val);  // Last boundary
+        
+        // Add to all_boundaries
+        all_boundaries.insert(all_boundaries.end(), boundaries.begin(), boundaries.end());
+    }
+    
+    return all_boundaries;
+}
+
+
+__global__ void BuildHistogramRandomWidthKernel(
+    const float* __restrict__ d_attributes,
+    const unsigned int* __restrict__ d_row_indices,
+    const unsigned int* __restrict__ d_labels,
+    int* d_hist_class0,
+    int* d_hist_class1,
+    int* d_hist_class2,
+    const float* d_bin_boundaries,  // array of size num_bins + 1
+    const int num_rows,
+    const int num_proj,
+    const int num_bins
+)
+{
+    extern __shared__ int shared_mem[];
+    int proj_id = blockIdx.y;
+    if (proj_id >= num_proj) return;
+    
+    // Initialize shared memory histograms
+    for (int i = threadIdx.x; i < 3 * num_bins; i += blockDim.x)
+        shared_mem[i] = 0;
+    __syncthreads();
+    
+    // Each projection has its own set of bin boundaries
+    const float* proj_boundaries = d_bin_boundaries + proj_id * (num_bins + 1);
+    
+    const std::size_t col_offset = std::size_t(proj_id) * num_rows;
+    const int stride = blockDim.x * gridDim.x;
+    const int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    for (int i = tid; i < num_rows; i += stride) {
+        float val = d_attributes[col_offset + i];
+        unsigned int label = d_labels[d_row_indices[i]];
+        
+        // Binary search to find bin
+        int bin = binary_search_upper_bound(proj_boundaries, num_bins + 1, val);
+        bin = min(bin, num_bins - 1);  // Clamp to valid range
+        
+        // Update histogram
+        if (label == 1) {
+            atomicAdd(&shared_mem[num_bins + bin], 1);
+        } else if (label == 2) {
+            atomicAdd(&shared_mem[2 * num_bins + bin], 1);
+        } else {
+            atomicAdd(&shared_mem[bin], 1);
+        }
+    }
+    __syncthreads();
+    
+    // Write results to global memory
+    int offset = proj_id * num_bins;
+    for (int i = threadIdx.x; i < num_bins; i += blockDim.x) {
+        atomicAdd(&d_hist_class0[offset + i], shared_mem[i]);
+        atomicAdd(&d_hist_class1[offset + i], shared_mem[num_bins + i]);
+        atomicAdd(&d_hist_class2[offset + i], shared_mem[2 * num_bins + i]);
+    }
+}
+
 
 template <int BLOCK_SIZE>
 __global__ void BuildHistogramEqualWidthKernel(
@@ -571,6 +847,202 @@ struct index_to_proj
 };
 
 
+void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
+                           const unsigned int* __restrict__ d_selected_examples,
+                           const unsigned int* __restrict__ d_global_labels_data,
+                           float* d_min_vals,
+                           float* d_max_vals,
+                           int** d_prefix_0_out,
+                           int** d_prefix_1_out,
+                           int** d_prefix_2_out,
+                           float** d_bin_boundaries_out,  // New output parameter
+                           const int num_rows,
+                           const int num_bins,
+                           const int num_proj)
+{
+    // Generate random bin boundaries
+    std::vector<float> h_boundaries = generateRandomBinBoundaries(num_bins, num_proj, 
+                                                                  d_min_vals, d_max_vals);
+    
+    // Allocate and copy boundaries to device
+    float* d_bin_boundaries;
+    size_t boundaries_size = num_proj * (num_bins + 1) * sizeof(float);
+    CUDA_CHECK(cudaMalloc(&d_bin_boundaries, boundaries_size));
+    CUDA_CHECK(cudaMemcpy(d_bin_boundaries, h_boundaries.data(), boundaries_size, 
+                          cudaMemcpyHostToDevice));
+    
+    // Allocate histograms
+    int* d_hist_class0;
+    int* d_hist_class1;
+    int* d_hist_class2;
+    CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * num_bins * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_hist_class1, num_proj * num_bins * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_hist_class2, num_proj * num_bins * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * num_bins * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_hist_class1, 0, num_proj * num_bins * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * num_bins * sizeof(int)));
+    
+    // Launch kernel with variable width bins
+    int threads_per_block = 256;
+    int blocks_per_grid = (num_rows + threads_per_block - 1) / threads_per_block;
+    dim3 grid(blocks_per_grid, num_proj);
+    int sharedMemSize = 3 * num_bins * sizeof(int);
+    
+    BuildHistogramRandomWidthKernel<<<grid, threads_per_block, sharedMemSize>>>(
+        d_col_add_projected, d_selected_examples, d_global_labels_data,
+        d_hist_class0, d_hist_class1, d_hist_class2,
+        d_bin_boundaries, num_rows, num_proj, num_bins);
+    
+    CUDA_CHECK(cudaPeekAtLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    // Prefix sums (same as EqualWidthHistogram)
+    int total_rows = num_bins * num_proj;
+
+    int* d_prefix_2;
+    int* d_prefix_1;
+    int* d_prefix_0;
+    CUDA_CHECK(cudaMalloc(&d_prefix_2, total_rows * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_prefix_1, total_rows * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_prefix_0, total_rows * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_prefix_2, 0, total_rows * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_prefix_1, 0, total_rows * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
+
+    auto counting_begin = thrust::make_counting_iterator<int>(0);
+    auto keys_begin = thrust::make_transform_iterator(counting_begin, index_to_proj{num_bins});
+
+    auto d_hist_class2_ptr = thrust::device_pointer_cast(d_hist_class2);
+    auto d_prefix_2_ptr = thrust::device_pointer_cast(d_prefix_2);
+
+    auto d_hist_class1_ptr = thrust::device_pointer_cast(d_hist_class1);
+    auto d_prefix_1_ptr = thrust::device_pointer_cast(d_prefix_1);
+    
+    cudaStream_t stream = 0;
+ 
+    thrust::inclusive_scan_by_key(
+        thrust::cuda::par.on(stream),
+        keys_begin,
+        keys_begin + total_rows,
+        d_hist_class2_ptr,
+        d_prefix_2_ptr,
+        thrust::equal_to<int>(),
+        thrust::plus<int>()
+    ); 
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    thrust::inclusive_scan_by_key(
+        thrust::cuda::par.on(stream),
+        keys_begin,
+        keys_begin + total_rows,
+        d_hist_class1_ptr,
+        d_prefix_1_ptr,
+        thrust::equal_to<int>(),
+        thrust::plus<int>()
+    );
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    *d_prefix_0_out = d_prefix_0;
+    *d_prefix_1_out = d_prefix_1;
+    *d_prefix_2_out = d_prefix_2;
+    *d_bin_boundaries_out = d_bin_boundaries;  // Return boundaries for split finding
+
+    CUDA_CHECK(cudaFree(d_hist_class0));
+    CUDA_CHECK(cudaFree(d_hist_class1));
+    CUDA_CHECK(cudaFree(d_hist_class2));
+    CUDA_CHECK(cudaFree(d_max_vals));
+    CUDA_CHECK(cudaFree((void *)d_selected_examples));
+    CUDA_CHECK(cudaFree((void *)d_col_add_projected));
+}
+
+void VariableWidthSplit(const int* d_prefix_0,
+                       const int* d_prefix_1,
+                       const int* d_prefix_2,
+                       const float* d_min_vals,
+                       const float* d_bin_boundaries,
+                       const int num_proj,
+                       const int num_bins,
+                       const int num_rows,
+                       int* best_proj,
+                       int* best_bin_out,
+                       float* best_gain_out,
+                       float* best_threshold_out,
+                       int* num_pos_examples_out,
+                       double* elapsed_ms,
+                       const bool verbose,
+                       const int comp_method)
+{
+    float* d_out_per_bin_per_proj;
+    float* d_threshold_per_bin_per_proj;
+    CUDA_CHECK(cudaMalloc(&d_out_per_bin_per_proj, num_proj * num_bins * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_threshold_per_bin_per_proj, num_proj * num_bins * sizeof(float)));
+
+    void* d_temp_storage = nullptr;
+    size_t temp_storage_bytes = 0;
+
+    int threads_per_block_split = 256;
+    int blocks_per_grid_split = (num_bins + threads_per_block_split - 1) / threads_per_block_split;
+    dim3 grid_split(blocks_per_grid_split, num_proj);
+    dim3 block_split(threads_per_block_split);
+
+    if (comp_method == 1) {
+        FindBestGiniSplitVariableWidthKernel<<<grid_split, block_split>>>(
+            d_prefix_0, d_prefix_1, d_bin_boundaries, num_proj, num_bins,
+            d_out_per_bin_per_proj, d_threshold_per_bin_per_proj);
+    }
+    // Add entropy version if needed
+    
+    CUDA_CHECK(cudaPeekAtLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
+
+    cub::KeyValuePair<int, float>* d_out1;
+    CUDA_CHECK(cudaMalloc(&d_out1, sizeof(cub::KeyValuePair<int, float>)));
+    
+    cub::DeviceReduce::ArgMax(
+        d_temp_storage, temp_storage_bytes,
+        d_out_per_bin_per_proj, d_out1, num_proj * num_bins);
+    CUDA_CHECK(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+    cub::DeviceReduce::ArgMax(
+        d_temp_storage, temp_storage_bytes,
+        d_out_per_bin_per_proj, d_out1, num_proj * num_bins);
+    
+    cub::KeyValuePair<int, float> h_out1;
+    CUDA_CHECK(cudaMemcpy(&h_out1, d_out1, sizeof(h_out1), cudaMemcpyDeviceToHost));
+
+    if (h_out1.value > 0.f) {
+        *best_proj = h_out1.key / num_bins;
+        *best_gain_out = h_out1.value;
+        *best_bin_out = h_out1.key - (*best_proj * num_bins);
+
+        // Get the actual threshold from the boundaries
+        CUDA_CHECK(cudaMemcpy(best_threshold_out, 
+                             d_threshold_per_bin_per_proj + h_out1.key, 
+                             sizeof(float), 
+                             cudaMemcpyDeviceToHost));
+
+        // Calculate num_pos_examples_out similar to EqualWidthSplit
+        int total_count_0, total_count_1, left_count_0, left_count_1;
+        CUDA_CHECK(cudaMemcpy(&total_count_0, d_prefix_0 + (*best_proj + 1) * num_bins - 1, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&total_count_1, d_prefix_1 + (*best_proj + 1) * num_bins - 1, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&left_count_0, d_prefix_0 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&left_count_1, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        *num_pos_examples_out = total_count_0 + total_count_1 - left_count_0 - left_count_1;
+    }
+    
+    CUDA_CHECK(cudaFree(d_out1));
+    CUDA_CHECK(cudaFree(d_temp_storage));
+    CUDA_CHECK(cudaFree((void *)d_prefix_0));
+    CUDA_CHECK(cudaFree((void *)d_prefix_1));
+    CUDA_CHECK(cudaFree((void *)d_prefix_2));
+    CUDA_CHECK(cudaFree((void *)d_min_vals));
+    CUDA_CHECK(cudaFree((void *)d_bin_boundaries));
+    CUDA_CHECK(cudaFree(d_out_per_bin_per_proj));
+    CUDA_CHECK(cudaFree(d_threshold_per_bin_per_proj));
+}
+
+
 void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attributes
                           const unsigned int* __restrict__ d_selected_examples, //selected examples
                           const unsigned int* __restrict__ d_global_labels_data,
@@ -587,6 +1059,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     {
 
     const int BLOCK = 256;
+    cudaStream_t stream = 0;
 
     //////////////////////////Allocate Device Memory/////////////////////////////////////////
     // auto startAlloc = std::chrono::high_resolution_clock::now();
@@ -642,7 +1115,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     
     // auto d_hist_class0_ptr   = thrust::device_pointer_cast(d_hist_class0);        // input Not Used class
     // auto d_prefix_0_ptr = thrust::device_pointer_cast(d_prefix_0);  // output
-    cudaStream_t stream;
+    // cudaStream_t stream;
  
         thrust::inclusive_scan_by_key( //label = 0 second
         thrust::cuda::par.on(stream),
@@ -680,6 +1153,57 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     CUDA_CHECK(cudaFree((void *)d_col_add_projected));
 }
 
+void BuildHistogramAndFindBestSplit(
+    const float* d_col_add_projected,
+    const unsigned int* d_selected_examples,
+    const unsigned int* d_global_labels_data,
+    float* d_min_vals,
+    float* d_max_vals,
+    float* d_bin_widths,
+    const int num_rows,
+    const int num_bins,
+    const int num_proj,
+    int* best_proj,
+    int* best_bin_out,
+    float* best_gain_out,
+    float* best_threshold_out,
+    int* num_pos_examples_out,
+    const bool use_variable_width,  // NEW parameter
+    const int comp_method)
+{
+    int* d_prefix_0;
+    int* d_prefix_1;
+    int* d_prefix_2;
+    float* d_bin_boundaries = nullptr;
+    
+    if (use_variable_width) {
+        VariableWidthHistogram(
+            d_col_add_projected, d_selected_examples, d_global_labels_data,
+            d_min_vals, d_max_vals,
+            &d_prefix_0, &d_prefix_1, &d_prefix_2, &d_bin_boundaries,
+            num_rows, num_bins, num_proj);
+            
+        VariableWidthSplit(
+            d_prefix_0, d_prefix_1, d_prefix_2,
+            d_min_vals, d_bin_boundaries,
+            num_proj, num_bins, num_rows,
+            best_proj, best_bin_out, best_gain_out, best_threshold_out,
+            num_pos_examples_out, nullptr, false, comp_method);
+    } else {
+        EqualWidthHistogram(
+            d_col_add_projected, d_selected_examples, d_global_labels_data,
+            d_min_vals, d_max_vals, d_bin_widths,
+            &d_prefix_0, &d_prefix_1, &d_prefix_2,
+            num_rows, num_bins, num_proj);
+            
+        EqualWidthSplit(
+            d_prefix_0, d_prefix_1, d_prefix_2,
+            d_min_vals, d_bin_widths,
+            num_proj, num_bins, num_rows,
+            best_proj, best_bin_out, best_gain_out, best_threshold_out,
+            num_pos_examples_out, nullptr, false, comp_method);
+    }
+}
 
 __device__ __forceinline__
 float entropy(const int pos, const int neg) {
@@ -703,6 +1227,62 @@ __device__ float gini(const int pos, const int neg) {
     float p = float(pos) / total;
     float n = float(neg) / total;
     return 1.0f - p * p - n * n;
+}
+
+__global__ void FindBestGiniSplitVariableWidthKernel(
+    const int* hist_class0,
+    const int* hist_class1,
+    const float* bin_boundaries,  // Use actual boundaries instead of min_vals/bin_widths
+    const int num_proj,
+    const int num_bins,
+    float* gini_out_per_bin_per_proj,
+    float* threshold_out_per_bin_per_proj  // Store actual thresholds
+)  // per proj
+{
+    int proj_id = blockIdx.y;   
+    int bin_id  = threadIdx.x + blockIdx.x * blockDim.x;
+
+    // Only evaluate splits between bins, not after the last bin
+    if (proj_id >= num_proj) return;
+    if (bin_id >= num_bins - 1) return;
+
+    int base_idx = proj_id * num_bins;
+
+    // Compute total class counts (redundantly across threads)
+    // Total class is same for all projections
+    int total_class0 = hist_class0[ base_idx + num_bins - 1 ]; // last bin holds total count
+    int total_class1 = hist_class1[ base_idx + num_bins - 1 ]; // last bin holds total count
+    
+    // Compute left class counts for this split point
+    int left_class0 = hist_class0[ base_idx + bin_id ]; // hist already cumulative
+    int left_class1 = hist_class1[ base_idx + bin_id ]; // hist already cumulative
+
+    int right_class0 = total_class0 - left_class0;
+    int right_class1 = total_class1 - left_class1;
+
+    int left_total  = left_class0 + left_class1;
+    int right_total = right_class0 + right_class1;
+
+    float gini_left = gini(left_class1, left_class0);
+    float gini_right = gini(right_class1, right_class0);
+    float gini_parent = gini(total_class1, total_class0);
+
+    float total = total_class0 + total_class1;
+    float left_weight = float(left_total) / float(total);
+    float right_weight = float(right_total) / float(total);
+
+    float gini_gain = gini_parent - (left_weight * gini_left + right_weight * gini_right);
+
+    // Store per-thread result in global memory
+    // just index it right so it can store the result for each bin per projection
+    if (left_total == 0 || right_total == 0) {
+        gini_out_per_bin_per_proj[base_idx + bin_id] = -INFINITY;
+        return;
+    }
+    gini_out_per_bin_per_proj[base_idx + bin_id] = gini_gain;
+    const float* proj_boundaries = bin_boundaries + proj_id * (num_bins + 1);
+    threshold_out_per_bin_per_proj[base_idx + bin_id] = proj_boundaries[bin_id + 1];
+
 }
 
 __global__ void FindBestGiniSplitKernel(
@@ -933,19 +1513,14 @@ void ThrustSortIndicesOnly(float* d_proj_values, unsigned int* d_row_ids, unsign
 __device__ __forceinline__
 float atomicMaxFloat(float* addr, float v)
 {
-#if __CUDA_ARCH__ >= 700
-    return atomicMax(addr, v);
-#else
-    int* ai = reinterpret_cast<int*>(addr);
-    int  old = *ai, assumed;
-    int  nv  = __float_as_int(v);
+    int* addr_as_int = (int*)addr;
+    int old = *addr_as_int, assumed;
     do {
         assumed = old;
-        if (__int_as_float(old) >= v) break;
-        old = atomicCAS(ai, assumed, nv);
+        old = atomicCAS(addr_as_int, assumed,
+                        __float_as_int(fmaxf(__int_as_float(assumed), v)));
     } while (assumed != old);
     return __int_as_float(old);
-#endif
 }
 
 template <typename T>
@@ -1286,4 +1861,72 @@ void ExactSplit(
     CUDA_CHECK(cudaFree(d_block_best_gain));
     CUDA_CHECK(cudaFree(d_col_add_projected));
     CUDA_CHECK(cudaFree(d_sorted_indices));
+}
+
+
+void testHistogramMethods() {
+    // Setup test data
+    const int num_rows = 10000;
+    const int num_proj = 10;
+    const int num_bins = 256;
+    const int num_features = 100;
+    const int num_total_rows = 50000;
+    
+    // Allocate test data
+    float* d_col_add_projected;
+    unsigned int* d_selected_examples;
+    unsigned int* d_global_labels_data;
+    float* d_min_vals;
+    float* d_max_vals;
+    float* d_bin_widths;
+    
+    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_global_labels_data, num_total_rows * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_min_vals, num_proj * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_max_vals, num_proj * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_bin_widths, num_proj * sizeof(float)));
+    
+    // Initialize with test data (you'll need to add initialization code here)
+    
+    int best_proj, best_bin_out, num_pos_examples_out;
+    float best_gain_out, best_threshold_out;
+    
+    // Test equal-width
+    auto start_equal = std::chrono::high_resolution_clock::now();
+    BuildHistogramAndFindBestSplit(
+        d_col_add_projected, d_selected_examples, d_global_labels_data,
+        d_min_vals, d_max_vals, d_bin_widths,
+        num_rows, num_bins, num_proj,
+        &best_proj, &best_bin_out, &best_gain_out, &best_threshold_out,
+        &num_pos_examples_out,
+        false, 1);  // false = equal-width, 1 = gini
+    auto end_equal = std::chrono::high_resolution_clock::now();
+    
+    // Reallocate data that was freed
+    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_min_vals, num_proj * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_max_vals, num_proj * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_bin_widths, num_proj * sizeof(float)));
+    
+    // Test variable-width
+    auto start_var = std::chrono::high_resolution_clock::now();
+    BuildHistogramAndFindBestSplit(
+        d_col_add_projected, d_selected_examples, d_global_labels_data,
+        d_min_vals, d_max_vals, d_bin_widths,
+        num_rows, num_bins, num_proj,
+        &best_proj, &best_bin_out, &best_gain_out, &best_threshold_out,
+        &num_pos_examples_out,
+        true, 1);   // true = variable-width, 1 = gini
+    auto end_var = std::chrono::high_resolution_clock::now();
+    
+    // Compare results and timing
+    printf("Equal-width time: %f ms\n", 
+           std::chrono::duration<double, std::milli>(end_equal - start_equal).count());
+    printf("Variable-width time: %f ms\n", 
+           std::chrono::duration<double, std::milli>(end_var - start_var).count());
+    
+    // Cleanup
+    CUDA_CHECK(cudaFree(d_global_labels_data));
 }
