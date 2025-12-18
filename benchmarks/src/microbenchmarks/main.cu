@@ -293,6 +293,51 @@ int main(int argc, char** argv) {
     
     // Print results
     printf("\n=== RESULTS ===\n");
+
+    // Test exact splitting
+printf("\nTesting Exact Split...\n");
+
+// Need to reallocate d_col_add_projected and d_selected_examples as they were freed
+CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_selected * sizeof(float)));
+CUDA_CHECK(cudaMalloc(&d_selected_examples, num_selected * sizeof(unsigned int)));
+CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_selected * sizeof(unsigned int), cudaMemcpyHostToDevice));
+
+auto start_exact = std::chrono::high_resolution_clock::now();
+
+float* d_min_vals_exact = nullptr;
+float* d_max_vals_exact = nullptr;
+float* d_bin_widths_exact = nullptr;
+double elapsed_apply_exact = 0;
+
+// Apply projection (split_method = 0 for exact)
+ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
+                        &d_min_vals_exact, &d_max_vals_exact, &d_bin_widths_exact,
+                        projection_col_idx, projection_weights,
+                        num_selected, num_proj, num_rows,
+                        &elapsed_apply_exact, 0, true);  // 0 = exact split method
+
+// Allocate memory for sorted indices
+unsigned int* d_sorted_indices;
+CUDA_CHECK(cudaMalloc(&d_sorted_indices, num_proj * num_selected * sizeof(unsigned int)));
+
+// Sort indices (required for exact split)
+ThrustSortIndicesOnly(d_col_add_projected, d_sorted_indices, d_selected_examples, 
+                      num_selected, num_proj);
+
+// Perform exact split
+int best_proj_exact, best_split_exact;
+float best_gain_exact, best_threshold_exact;
+double elapsed_split_exact = 0;
+
+ExactSplit(d_sorted_indices, d_labels, 
+           &best_gain_exact, &best_split_exact, &best_threshold_exact,
+           &best_proj_exact,
+           num_selected, num_proj, d_col_add_projected,
+           &elapsed_split_exact, true, 1);  // 1 = gini
+
+auto end_exact = std::chrono::high_resolution_clock::now();
+
+
     printf("Equal-Width Histogram:\n");
     printf("  Best projection: %d\n", best_proj_eq);
     printf("  Best bin: %d\n", best_bin_eq);
@@ -308,10 +353,23 @@ int main(int argc, char** argv) {
     printf("  Best threshold: %f\n", best_threshold_var);
     printf("  Total time: %f ms\n", 
            std::chrono::duration<double, std::milli>(end_var - start_var).count());
+
+           printf("\nExact Split:\n");
+printf("  Best projection: %d\n", best_proj_exact);
+printf("  Best split index: %d\n", best_split_exact);
+printf("  Best gain: %f\n", best_gain_exact);
+printf("  Best threshold: %f\n", best_threshold_exact);
+printf("  Total time: %f ms\n", 
+       std::chrono::duration<double, std::milli>(end_exact - start_exact).count());
     
-    printf("\nSpeedup (Equal/Variable): %.2fx\n", 
-           std::chrono::duration<double, std::milli>(end_var - start_var).count() /
-           std::chrono::duration<double, std::milli>(end_equal - start_equal).count());
+printf("\nTiming Comparison:\n");
+double time_equal = std::chrono::duration<double, std::milli>(end_equal - start_equal).count();
+double time_var = std::chrono::duration<double, std::milli>(end_var - start_var).count();
+double time_exact = std::chrono::duration<double, std::milli>(end_exact - start_exact).count();
+
+printf("  Speedup (Exact/Equal): %.2fx\n", time_exact / time_equal);
+printf("  Speedup (Exact/Variable): %.2fx\n", time_exact / time_var);
+printf("  Speedup (Variable/Equal): %.2fx\n", time_var / time_equal);
     
     // Cleanup
     CUDA_CHECK(cudaFree(d_data));
