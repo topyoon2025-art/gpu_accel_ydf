@@ -28,7 +28,7 @@ void generateTrunkData(std::vector<float>& h_data,
         for (int i = 0; i < num_rows; ++i) {
             const bool cls1 = (i >= num_rows / 2);
             const float mean = cls1 ? mu1[j] : mu0[j];
-            h_data[i * num_features + j] = mean + normal(gen);
+            h_data[j*num_rows + i] = mean + normal(gen);
         }
     }
     
@@ -54,13 +54,13 @@ void generateSimpleTestData(std::vector<float>& h_data,
             if (j == 0) {
                 // Feature 0: perfectly separates classes
                 if (is_class1) {
-                    h_data[i * num_features + j] = 1.0f + (float)(i - num_rows/2) / (float)(num_rows/2);
+                    h_data[j*num_rows + i] = 1.0f + (float)(i - num_rows/2) / (float)(num_rows/2);
                 } else {
-                    h_data[i * num_features + j] = -2.0f + (float)i / (float)(num_rows/2);
+                    h_data[j*num_rows + i] = -2.0f + (float)i / (float)(num_rows/2);
                 }
             } else {
                 // Other features: random noise
-                h_data[i * num_features + j] = ((float)rand() / RAND_MAX) * 0.1f - 0.05f;
+                h_data[j*num_rows + i] = ((float)rand() / RAND_MAX) * 0.1f - 0.05f;
             }
         }
     }
@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
         printf("%-10s | %-15s | %-10s\n", "Row Index", "Feature 0 Val", "Label");
         printf("--------------------------------------------\n");
         for (int i = 0; i < num_rows; ++i) {
-            float val = h_data[i * num_features + 0]; // Feature index 0
+            float val = h_data[0 * num_rows + i]; // Feature index 0
             unsigned int label = h_labels[i];
             printf("%-10d | %-15.6f | %-10u\n", i, val, label);
         }
@@ -147,15 +147,24 @@ int main(int argc, char** argv) {
     // Generate random projections
     std::vector<std::vector<int>> projection_col_idx(num_proj);
     std::vector<std::vector<float>> projection_weights(num_proj);
+
+    // 0) Deterministic projection: feature 0 with weight 1
+    projection_col_idx[0] = {0};
+    projection_weights[0] = {1.0f};
     
+    // Use a fixed seed for reproducibility
+    std::mt19937 gen_proj(12345);
     std::uniform_int_distribution<int> feat_dis(0, num_features - 1);
     std::uniform_real_distribution<float> weight_dis(-1.0f, 1.0f);
-    
-    for (int p = 0; p < num_proj; ++p) {
-        int num_features_per_proj = 5 + (p % 5);  // 5-10 features per projection
+
+    // 1..num_proj-1 random projections
+    for (int p = 1; p < num_proj; ++p) {
+        int num_features_per_proj = 5 + (p % 5);  // 5-9 features per projection
+        projection_col_idx[p].reserve(num_features_per_proj);
+        projection_weights[p].reserve(num_features_per_proj);
         for (int f = 0; f < num_features_per_proj; ++f) {
-            projection_col_idx[p].push_back(feat_dis(gen));
-            projection_weights[p].push_back(weight_dis(gen));
+            projection_col_idx[p].push_back(feat_dis(gen_proj));
+            projection_weights[p].push_back(weight_dis(gen_proj));
         }
     }
     
@@ -178,7 +187,7 @@ int main(int argc, char** argv) {
         int count0 = 0, count1 = 0;
         
         for (int i = 0; i < num_rows; ++i) {
-            float val = h_data[i * num_features + j];
+            float val = h_data[j*num_rows + i];
             if (h_labels[i] == 1) {
                 sum0 += val;
                 sum_sq0 += val * val;

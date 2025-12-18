@@ -1,3 +1,4 @@
+//randomprojection.cuh
 // Online C++ compiler to run C++ program online
 #include <cuda.h>
 #include <cstddef>  // for std::size_t
