@@ -1,37 +1,67 @@
 // main.cu
 #include "randomprojection.cuh"  // Put your code in a header file
 
+// Generate trunk dataset
+void generateTrunkData(std::vector<float>& h_data, 
+                      std::vector<unsigned int>& h_labels,
+                      int num_rows, int num_features, unsigned int seed) {
+    const int kNInformative = 256;
+    const int ninform = std::min(kNInformative, num_features);
+    
+    // Pre-compute the two means for the informative coordinates
+    std::vector<float> mu0(num_features, 0.0f);
+    std::vector<float> mu1(num_features, 0.0f);
+    
+    for (int j = 0; j < ninform; ++j) {
+        const float f = 1.0f / std::sqrt(static_cast<float>(j + 1));
+        mu0[j] = -f;
+        mu1[j] = f;
+    }
+    
+    // Fill the feature columns
+    for (int j = 0; j < num_features; ++j) {
+        // Deterministic per-column seed
+        std::seed_seq seq{seed, static_cast<unsigned int>(j)};
+        std::mt19937 gen(seq);
+        std::normal_distribution<float> normal(0.0f, 1.0f);
+        
+        for (int i = 0; i < num_rows; ++i) {
+            const bool cls1 = (i >= num_rows / 2);
+            const float mean = cls1 ? mu1[j] : mu0[j];
+            h_data[i * num_features + j] = mean + normal(gen);
+        }
+    }
+    
+    // Fill the label column
+    for (int i = 0; i < num_rows; ++i) {
+        h_labels[i] = (i >= num_rows / 2) ? 1 : 0;  // 0-based labels for binary classification
+    }
+}
+
 int main() {
     // Initialize CUDA
     warmupfunction();
     
     // Test parameters
-    const int num_rows = 10000;
+    const int num_rows = 100000;
     const int num_features = 100;
     const int num_proj = 10;
     const int num_bins = 256;
-    const int num_selected = 5000;  // subset of rows
+    const int num_selected = 50000;  // subset of rows
+    const unsigned int seed = 42;  // Fixed seed for reproducibility
     
     // Generate test data on host
     std::vector<float> h_data(num_features * num_rows);
     std::vector<unsigned int> h_labels(num_rows);
     std::vector<unsigned int> h_selected_examples(num_selected);
     
-    // Fill with random data
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> dis(0.0f, 100.0f);
-    std::uniform_int_distribution<unsigned int> label_dis(0, 1);
-    
-    for (int i = 0; i < num_features * num_rows; ++i) {
-        h_data[i] = dis(gen);
-    }
-    
-    for (int i = 0; i < num_rows; ++i) {
-        h_labels[i] = label_dis(gen);
-    }
+    // Use Trunk data generator
+    printf("Generating Trunk dataset with %d rows and %d features...\n", num_rows, num_features);
+    generateTrunkData(h_data, h_labels, num_rows, num_features, seed);
     
     // Select random subset of examples
+    std::random_device rd;
+    std::mt19937 gen(rd());
     std::vector<int> indices(num_rows);
     std::iota(indices.begin(), indices.end(), 0);
     std::shuffle(indices.begin(), indices.end(), gen);
@@ -54,6 +84,44 @@ int main() {
         }
     }
     
+    // Print some statistics about the generated data
+    printf("\nDataset statistics:\n");
+    int class0_count = 0, class1_count = 0;
+    for (int i = 0; i < num_rows; ++i) {
+        if (h_labels[i] == 0) class0_count++;
+        else class1_count++;
+    }
+    printf("  Class 0: %d samples\n", class0_count);
+    printf("  Class 1: %d samples\n", class1_count);
+    
+    // Compute and print mean/std for first few features
+    printf("\nFeature statistics (first 5 features):\n");
+    for (int j = 0; j < std::min(5, num_features); ++j) {
+        float sum0 = 0, sum1 = 0, sum_sq0 = 0, sum_sq1 = 0;
+        int count0 = 0, count1 = 0;
+        
+        for (int i = 0; i < num_rows; ++i) {
+            float val = h_data[i * num_features + j];
+            if (h_labels[i] == 0) {
+                sum0 += val;
+                sum_sq0 += val * val;
+                count0++;
+            } else {
+                sum1 += val;
+                sum_sq1 += val * val;
+                count1++;
+            }
+        }
+        
+        float mean0 = sum0 / count0;
+        float mean1 = sum1 / count1;
+        float std0 = std::sqrt(sum_sq0 / count0 - mean0 * mean0);
+        float std1 = std::sqrt(sum_sq1 / count1 - mean1 * mean1);
+        
+        printf("  Feature %d: Class 0 (mean=%.3f, std=%.3f), Class 1 (mean=%.3f, std=%.3f)\n",
+               j, mean0, std0, mean1, std1);
+    }
+    
     // Allocate device memory
     float* d_data;
     unsigned int* d_labels;
@@ -71,7 +139,7 @@ int main() {
     CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_selected * sizeof(unsigned int), cudaMemcpyHostToDevice));
     
     // Test equal-width histogram
-    printf("Testing Equal-Width Histogram...\n");
+    printf("\nTesting Equal-Width Histogram...\n");
     auto start_equal = std::chrono::high_resolution_clock::now();
     
     float* d_min_vals_eq = nullptr;
