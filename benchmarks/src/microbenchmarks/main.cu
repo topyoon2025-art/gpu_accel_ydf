@@ -1,3 +1,5 @@
+//TODO E.W. bins may not be matching YDF. they seem to do some midpoint computation
+
 // main.cu
 #include "randomprojection.cuh"  // Put your code in a header file
 

@@ -1742,10 +1742,10 @@ void ExactSplit(
     )
 {
     CUDA_CHECK(cudaGetLastError()); 
-    constexpr int STRIDE = 29; // You can adjust STRIDE for # of elements for split computation
+    constexpr int STRIDE = 1; // You can adjust STRIDE for # of elements for split computation
     const int blockSize = 256;
 
-    const int logical_rows = (num_rows + STRIDE - 1) / STRIDE;
+    const int logical_rows = num_rows - 1;//(num_rows + STRIDE - 1) / STRIDE;
 
     int total_rows = num_proj * num_rows;
     int* d_prefix_pos;
