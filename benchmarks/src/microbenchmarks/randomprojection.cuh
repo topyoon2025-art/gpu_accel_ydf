@@ -62,7 +62,7 @@ __global__ void FindBestGiniSplitVariableWidthKernel(
 );
 
 void EqualWidthSplit(
-    const int* d_prefix_0,
+    // const int* d_prefix_0, // reserved by YDF - unnecessary
     const int* d_prefix_1,
     const int* d_prefix_2,
     const float* d_min_vals,
@@ -721,7 +721,7 @@ __global__ void BuildHistogramRandomWidthKernel(
     const float* __restrict__ d_attributes,
     const unsigned int* __restrict__ d_row_indices,
     const unsigned int* __restrict__ d_labels,
-    int* d_hist_class0,
+    // int* d_hist_class0,
     int* d_hist_class1,
     int* d_hist_class2,
     const float* d_bin_boundaries,  // array of size num_bins + 1
@@ -768,7 +768,7 @@ __global__ void BuildHistogramRandomWidthKernel(
     // Write results to global memory
     int offset = proj_id * num_bins;
     for (int i = threadIdx.x; i < num_bins; i += blockDim.x) {
-        atomicAdd(&d_hist_class0[offset + i], shared_mem[i]);
+        // atomicAdd(&d_hist_class0[offset + i], shared_mem[i]);
         atomicAdd(&d_hist_class1[offset + i], shared_mem[num_bins + i]);
         atomicAdd(&d_hist_class2[offset + i], shared_mem[2 * num_bins + i]);
     }
@@ -780,7 +780,7 @@ __global__ void BuildHistogramEqualWidthKernel(
     const float* __restrict__ d_attributes, //attributes
     const unsigned int*__restrict__ d_row_indices, //selected examples
     const unsigned int* __restrict__ d_labels,
-    int* d_hist_class0,          // [num_samples], values 0 or 1
+    // int* d_hist_class0,          // [num_samples], values 0 or 1
     int* d_hist_class1,           // [NUM_BINS], count of
     int* d_hist_class2, 
     const float* d_min_vals,
@@ -835,7 +835,7 @@ __global__ void BuildHistogramEqualWidthKernel(
     for (int i = threadIdx.x; i < num_bins; i += blockDim.x) {
         atomicAdd(&d_hist_class1[offset + i], shared_mem[num_bins + i]);
         atomicAdd(&d_hist_class2[offset + i], shared_mem[2 * (num_bins) + i ]);
-        atomicAdd(&d_hist_class0[offset + i], shared_mem[i]);
+        // atomicAdd(&d_hist_class0[offset + i], shared_mem[i]);
     } 
 }
 
@@ -852,7 +852,7 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
                            const unsigned int* __restrict__ d_global_labels_data,
                            float* d_min_vals,
                            float* d_max_vals,
-                           int** d_prefix_0_out,
+                        //    int** d_prefix_0_out,
                            int** d_prefix_1_out,
                            int** d_prefix_2_out,
                            float** d_bin_boundaries_out,  // New output parameter
@@ -872,13 +872,13 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
                           cudaMemcpyHostToDevice));
     
     // Allocate histograms
-    int* d_hist_class0;
+    // int* d_hist_class0;
     int* d_hist_class1;
     int* d_hist_class2;
-    CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * num_bins * sizeof(int)));
+    // CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * num_bins * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_hist_class1, num_proj * num_bins * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_hist_class2, num_proj * num_bins * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * num_bins * sizeof(int)));
+    // CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * num_bins * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_hist_class1, 0, num_proj * num_bins * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * num_bins * sizeof(int)));
     
@@ -890,7 +890,8 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
     
     BuildHistogramRandomWidthKernel<<<grid, threads_per_block, sharedMemSize>>>(
         d_col_add_projected, d_selected_examples, d_global_labels_data,
-        d_hist_class0, d_hist_class1, d_hist_class2,
+        // d_hist_class0,
+        d_hist_class1, d_hist_class2,
         d_bin_boundaries, num_rows, num_proj, num_bins);
     
     CUDA_CHECK(cudaPeekAtLastError());
@@ -901,13 +902,13 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
 
     int* d_prefix_2;
     int* d_prefix_1;
-    int* d_prefix_0;
+    // int* d_prefix_0;
     CUDA_CHECK(cudaMalloc(&d_prefix_2, total_rows * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_prefix_1, total_rows * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_prefix_0, total_rows * sizeof(int)));
+    // CUDA_CHECK(cudaMalloc(&d_prefix_0, total_rows * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_prefix_2, 0, total_rows * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_prefix_1, 0, total_rows * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
+    // CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
 
     auto counting_begin = thrust::make_counting_iterator<int>(0);
     auto keys_begin = thrust::make_transform_iterator(counting_begin, index_to_proj{num_bins});
@@ -944,12 +945,12 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
     CUDA_CHECK(cudaStreamSynchronize(stream));
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    *d_prefix_0_out = d_prefix_0;
+    // *d_prefix_0_out = d_prefix_0;
     *d_prefix_1_out = d_prefix_1;
     *d_prefix_2_out = d_prefix_2;
     *d_bin_boundaries_out = d_bin_boundaries;  // Return boundaries for split finding
 
-    CUDA_CHECK(cudaFree(d_hist_class0));
+    // CUDA_CHECK(cudaFree(d_hist_class0));
     CUDA_CHECK(cudaFree(d_hist_class1));
     CUDA_CHECK(cudaFree(d_hist_class2));
     CUDA_CHECK(cudaFree(d_max_vals));
@@ -957,8 +958,7 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
     CUDA_CHECK(cudaFree((void *)d_col_add_projected));
 }
 
-void VariableWidthSplit(const int* d_prefix_0,
-                       const int* d_prefix_1,
+void VariableWidthSplit(const int* d_prefix_1,
                        const int* d_prefix_2,
                        const float* d_min_vals,
                        const float* d_bin_boundaries,
@@ -1024,16 +1024,16 @@ void VariableWidthSplit(const int* d_prefix_0,
 
         // Calculate num_pos_examples_out similar to EqualWidthSplit
         int total_count_0, total_count_1, left_count_0, left_count_1;
-        CUDA_CHECK(cudaMemcpy(&total_count_0, d_prefix_0 + (*best_proj + 1) * num_bins - 1, sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&total_count_1, d_prefix_1 + (*best_proj + 1) * num_bins - 1, sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&left_count_0, d_prefix_0 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&left_count_1, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&total_count_0, d_prefix_1 + (*best_proj + 1) * num_bins - 1, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&total_count_1, d_prefix_2 + (*best_proj + 1) * num_bins - 1, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&left_count_0, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&left_count_1, d_prefix_2 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
         *num_pos_examples_out = total_count_0 + total_count_1 - left_count_0 - left_count_1;
     }
     
     CUDA_CHECK(cudaFree(d_out1));
     CUDA_CHECK(cudaFree(d_temp_storage));
-    CUDA_CHECK(cudaFree((void *)d_prefix_0));
+    // CUDA_CHECK(cudaFree((void *)d_prefix_0));
     CUDA_CHECK(cudaFree((void *)d_prefix_1));
     CUDA_CHECK(cudaFree((void *)d_prefix_2));
     CUDA_CHECK(cudaFree((void *)d_min_vals));
@@ -1049,7 +1049,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
                           float* d_min_vals,
                           float* d_max_vals,
                           float* d_bin_widths,
-                          int** d_prefix_0_out,
+                        //   int** d_prefix_0_out,
                           int** d_prefix_1_out,
                           int** d_prefix_2_out,
                           const int num_rows, //selected_examples.size()
@@ -1063,13 +1063,13 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
 
     //////////////////////////Allocate Device Memory/////////////////////////////////////////
     // auto startAlloc = std::chrono::high_resolution_clock::now();
-    int* d_hist_class0;
+    // int* d_hist_class0;
     int* d_hist_class1;
     int* d_hist_class2;
-    CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * (num_bins) * sizeof(int)));
+    // CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * (num_bins) * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_hist_class1, num_proj * (num_bins) * sizeof(int)));
     CUDA_CHECK(cudaMalloc(&d_hist_class2, num_proj * (num_bins) * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * (num_bins) * sizeof(int)));
+    // CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * (num_bins) * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_hist_class1, 0, num_proj * (num_bins) * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * (num_bins) * sizeof(int)));
 
@@ -1086,7 +1086,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     //printf("grid_hist: (%d, %d)\n", grid_hist.x, grid_hist.y);
     int sharedMemSize = 3 * (num_bins) * sizeof(int); // For Hist 0, Hist 1, and Hist 2
     BuildHistogramEqualWidthKernel<BLOCK><<<grid_hist, threads_per_block_hist, sharedMemSize>>>(d_col_add_projected, d_selected_examples, d_global_labels_data,
-                                                                             d_hist_class0, d_hist_class1, d_hist_class2,
+                                                                             d_hist_class1, d_hist_class2,
                                                                              d_min_vals, d_max_vals, d_bin_widths,
                                                                              num_rows, num_proj, num_bins);
     CUDA_CHECK(cudaPeekAtLastError());
@@ -1096,13 +1096,13 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
 
     int* d_prefix_2;
     int* d_prefix_1;
-    int* d_prefix_0;
+    // int* d_prefix_0;
     CUDA_CHECK(cudaMalloc(&d_prefix_2, (total_rows * sizeof(int))));
     CUDA_CHECK(cudaMalloc(&d_prefix_1, (total_rows * sizeof(int))));
-    CUDA_CHECK(cudaMalloc(&d_prefix_0, (total_rows * sizeof(int))));
+    // CUDA_CHECK(cudaMalloc(&d_prefix_0, (total_rows * sizeof(int))));
     CUDA_CHECK(cudaMemset(d_prefix_2, 0, total_rows * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_prefix_1, 0, total_rows * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
+    // CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
 
     auto counting_begin = thrust::make_counting_iterator<int>(0);
     auto keys_begin = thrust::make_transform_iterator(counting_begin, index_to_proj{num_bins});
@@ -1141,11 +1141,11 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     CUDA_CHECK(cudaStreamSynchronize(stream));
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    *d_prefix_0_out = d_prefix_0;
+    // *d_prefix_0_out = d_prefix_0;
     *d_prefix_1_out = d_prefix_1;
     *d_prefix_2_out = d_prefix_2;
 
-    CUDA_CHECK(cudaFree(d_hist_class0));
+    // CUDA_CHECK(cudaFree(d_hist_class0));
     CUDA_CHECK(cudaFree(d_hist_class1));
     CUDA_CHECK(cudaFree(d_hist_class2));
     CUDA_CHECK(cudaFree(d_max_vals));
@@ -1171,7 +1171,7 @@ void BuildHistogramAndFindBestSplit(
     const bool use_variable_width,  // NEW parameter
     const int comp_method)
 {
-    int* d_prefix_0;
+    // int* d_prefix_0;
     int* d_prefix_1;
     int* d_prefix_2;
     float* d_bin_boundaries = nullptr;
@@ -1180,11 +1180,13 @@ void BuildHistogramAndFindBestSplit(
         VariableWidthHistogram(
             d_col_add_projected, d_selected_examples, d_global_labels_data,
             d_min_vals, d_max_vals,
-            &d_prefix_0, &d_prefix_1, &d_prefix_2, &d_bin_boundaries,
+            // &d_prefix_0, 
+            &d_prefix_1, &d_prefix_2, &d_bin_boundaries,
             num_rows, num_bins, num_proj);
             
         VariableWidthSplit(
-            d_prefix_0, d_prefix_1, d_prefix_2,
+            // d_prefix_0,
+            d_prefix_1, d_prefix_2,
             d_min_vals, d_bin_boundaries,
             num_proj, num_bins, num_rows,
             best_proj, best_bin_out, best_gain_out, best_threshold_out,
@@ -1193,11 +1195,13 @@ void BuildHistogramAndFindBestSplit(
         EqualWidthHistogram(
             d_col_add_projected, d_selected_examples, d_global_labels_data,
             d_min_vals, d_max_vals, d_bin_widths,
-            &d_prefix_0, &d_prefix_1, &d_prefix_2,
+            // &d_prefix_0,
+            &d_prefix_1, &d_prefix_2,
             num_rows, num_bins, num_proj);
             
         EqualWidthSplit(
-            d_prefix_0, d_prefix_1, d_prefix_2,
+            // d_prefix_0,
+            d_prefix_1, d_prefix_2,
             d_min_vals, d_bin_widths,
             num_proj, num_bins, num_rows,
             best_proj, best_bin_out, best_gain_out, best_threshold_out,
@@ -1386,7 +1390,8 @@ __global__ void FindBestEntropySplitKernel(
 }
 
 
-void EqualWidthSplit (const int* d_prefix_0,
+void EqualWidthSplit (
+    // const int* d_prefix_0,
                       const int* d_prefix_1,
                       const int* d_prefix_2,
                       const float* d_min_vals,
@@ -1417,7 +1422,8 @@ void EqualWidthSplit (const int* d_prefix_0,
 
     if (comp_method == 0) {       
         FindBestEntropySplitKernel<<<grid_split, block_split>>>(
-            d_prefix_0, d_prefix_1, d_min_vals, d_bin_widths, num_proj, num_bins,
+            d_prefix_1,
+            d_prefix_2, d_min_vals, d_bin_widths, num_proj, num_bins,
             d_out_per_bin_per_proj);
     }
     else {
@@ -1452,10 +1458,10 @@ void EqualWidthSplit (const int* d_prefix_0,
 
         int total_count_0, total_count_1, left_count_0, left_count_1;
         // Step 4: Copy result to host
-        CUDA_CHECK(cudaMemcpy(&total_count_0, d_prefix_0 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&total_count_1, d_prefix_1 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&left_count_0, d_prefix_0 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&left_count_1, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&total_count_0, d_prefix_1 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&total_count_1, d_prefix_2 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&left_count_0, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(&left_count_1, d_prefix_2 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
         *num_pos_examples_out = total_count_0 + total_count_1 - left_count_0 - left_count_1;
         
         float min_val, bin_width;
@@ -1467,7 +1473,7 @@ void EqualWidthSplit (const int* d_prefix_0,
     cudaDeviceSynchronize();
     CUDA_CHECK(cudaFree(d_out1));
     CUDA_CHECK(cudaFree(d_temp_storage));
-    CUDA_CHECK(cudaFree((void *)d_prefix_0));
+    // CUDA_CHECK(cudaFree((void *)d_prefix_0));
     CUDA_CHECK(cudaFree((void *)d_prefix_1));
     CUDA_CHECK(cudaFree((void *)d_prefix_2));
     CUDA_CHECK(cudaFree((void *)d_min_vals));

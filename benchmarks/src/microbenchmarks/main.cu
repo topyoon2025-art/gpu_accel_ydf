@@ -235,14 +235,17 @@ int main(int argc, char** argv) {
     int* d_prefix_0_eq, *d_prefix_1_eq, *d_prefix_2_eq;
     EqualWidthHistogram(d_col_add_projected, d_selected_examples, d_labels,
                        d_min_vals_eq, d_max_vals_eq, d_bin_widths_eq,
-                       &d_prefix_0_eq, &d_prefix_1_eq, &d_prefix_2_eq,
+                    //    &d_prefix_0_eq,
+                       &d_prefix_1_eq, &d_prefix_2_eq,
                        num_selected, num_bins, num_proj);
     
     int best_proj_eq, best_bin_eq, num_pos_examples_eq;
     float best_gain_eq, best_threshold_eq;
     double elapsed_split_eq = 0;
     
-    EqualWidthSplit(d_prefix_0_eq, d_prefix_1_eq, d_prefix_2_eq,
+    EqualWidthSplit(
+        // d_prefix_0_eq,
+        d_prefix_1_eq, d_prefix_2_eq,
                    d_min_vals_eq, d_bin_widths_eq,
                    num_proj, num_bins, num_selected,
                    &best_proj_eq, &best_bin_eq, &best_gain_eq, &best_threshold_eq,
@@ -277,7 +280,8 @@ int main(int argc, char** argv) {
     float* d_bin_boundaries_var;
     VariableWidthHistogram(d_col_add_projected, d_selected_examples, d_labels,
                           d_min_vals_var, d_max_vals_var,
-                          &d_prefix_0_var, &d_prefix_1_var, &d_prefix_2_var,
+                        //   &d_prefix_0_var,
+                          &d_prefix_1_var, &d_prefix_2_var,
                           &d_bin_boundaries_var,
                           num_selected, num_bins, num_proj);
     
@@ -285,7 +289,9 @@ int main(int argc, char** argv) {
     float best_gain_var, best_threshold_var;
     double elapsed_split_var = 0;
     
-    VariableWidthSplit(d_prefix_0_var, d_prefix_1_var, d_prefix_2_var,
+    VariableWidthSplit(
+        // d_prefix_0_var,
+        d_prefix_1_var, d_prefix_2_var,
                       d_min_vals_var, d_bin_boundaries_var,
                       num_proj, num_bins, num_selected,
                       &best_proj_var, &best_bin_var, &best_gain_var, &best_threshold_var,
