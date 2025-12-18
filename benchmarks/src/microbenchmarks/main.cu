@@ -34,7 +34,7 @@ void generateTrunkData(std::vector<float>& h_data,
     
     // Fill the label column
     for (int i = 0; i < num_rows; ++i) {
-        h_labels[i] = (i >= num_rows / 2) ? 1 : 0;  // 0-based labels for binary classification
+        h_labels[i] = (i >= num_rows / 2) ? 2 : 1;  // 0-based labels for binary classification
     }
 }
 
@@ -48,7 +48,7 @@ void generateSimpleTestData(std::vector<float>& h_data,
     
     for (int i = 0; i < num_rows; ++i) {
         bool is_class1 = (i >= num_rows / 2);
-        h_labels[i] = is_class1 ? 1 : 0;
+        h_labels[i] = is_class1 ? 2 : 1;
         
         for (int j = 0; j < num_features; ++j) {
             if (j == 0) {
@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
         // Toy dataset parameters
         num_rows = 20;           // Small enough to manually verify
         num_features = 3;
-        num_proj = 3;
+        num_proj = 300;
         num_bins = 10;           // Small number of bins
         num_selected = num_rows; // Use all rows
     }
