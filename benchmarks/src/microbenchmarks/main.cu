@@ -161,13 +161,15 @@ int main(int argc, char** argv) {
     
     // Print some statistics about the generated data
     printf("\nDataset statistics:\n");
-    int class0_count = 0, class1_count = 0;
+    int class0_count = 0, class1_count = 0, class2_count = 0;
     for (int i = 0; i < num_rows; ++i) {
         if (h_labels[i] == 0) class0_count++;
-        else class1_count++;
+        else if (h_labels[i] == 1) class1_count++;
+        else if (h_labels[i] == 2) class2_count++;
     }
-    printf("  Class 0: %d samples\n", class0_count);
+    printf("  Class 0: %d samples (reserved by YDF)\n", class0_count);
     printf("  Class 1: %d samples\n", class1_count);
+    printf("  Class 2: %d samples\n", class2_count);
     
     // Compute and print mean/std for first few features
     printf("\nFeature statistics (first 5 features):\n");
@@ -177,11 +179,11 @@ int main(int argc, char** argv) {
         
         for (int i = 0; i < num_rows; ++i) {
             float val = h_data[i * num_features + j];
-            if (h_labels[i] == 0) {
+            if (h_labels[i] == 1) {
                 sum0 += val;
                 sum_sq0 += val * val;
                 count0++;
-            } else {
+            } else if (h_labels[i] == 2) {
                 sum1 += val;
                 sum_sq1 += val * val;
                 count1++;
@@ -193,7 +195,7 @@ int main(int argc, char** argv) {
         float std0 = count0 > 0 ? std::sqrt(std::max(0.0f, sum_sq0 / count0 - mean0 * mean0)) : 0.0f;
         float std1 = count1 > 0 ? std::sqrt(std::max(0.0f, sum_sq1 / count1 - mean1 * mean1)) : 0.0f;
         
-        printf("  Feature %d: Class 0 (mean=%.3f, std=%.3f), Class 1 (mean=%.3f, std=%.3f)\n",
+        printf("  Feature %d: Class 1 (mean=%.3f, std=%.3f), Class 2 (mean=%.3f, std=%.3f)\n",
                j, mean0, std0, mean1, std1);
     }
     
@@ -291,23 +293,23 @@ int main(int argc, char** argv) {
     
     auto end_var = std::chrono::high_resolution_clock::now();
     
+    // Test exact splitting
+    printf("\nTesting Exact Split...\n");
+
+    // Need to reallocate d_col_add_projected and d_selected_examples as they were freed
+    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_selected * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_selected * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_selected * sizeof(unsigned int), cudaMemcpyHostToDevice));
+
+    auto start_exact = std::chrono::high_resolution_clock::now();
+
+    float* d_min_vals_exact = nullptr;
+    float* d_max_vals_exact = nullptr;
+    float* d_bin_widths_exact = nullptr;
+    double elapsed_apply_exact = 0;
+
     // Print results
     printf("\n=== RESULTS ===\n");
-
-    // Test exact splitting
-printf("\nTesting Exact Split...\n");
-
-// Need to reallocate d_col_add_projected and d_selected_examples as they were freed
-CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_selected * sizeof(float)));
-CUDA_CHECK(cudaMalloc(&d_selected_examples, num_selected * sizeof(unsigned int)));
-CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_selected * sizeof(unsigned int), cudaMemcpyHostToDevice));
-
-auto start_exact = std::chrono::high_resolution_clock::now();
-
-float* d_min_vals_exact = nullptr;
-float* d_max_vals_exact = nullptr;
-float* d_bin_widths_exact = nullptr;
-double elapsed_apply_exact = 0;
 
 // Apply projection (split_method = 0 for exact)
 ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,

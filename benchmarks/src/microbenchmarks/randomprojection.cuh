@@ -989,7 +989,7 @@ void VariableWidthSplit(const int* d_prefix_0,
 
     if (comp_method == 1) {
         FindBestGiniSplitVariableWidthKernel<<<grid_split, block_split>>>(
-            d_prefix_0, d_prefix_1, d_bin_boundaries, num_proj, num_bins,
+            d_prefix_1, d_prefix_2, d_bin_boundaries, num_proj, num_bins,
             d_out_per_bin_per_proj, d_threshold_per_bin_per_proj);
     }
     // Add entropy version if needed
@@ -1422,7 +1422,7 @@ void EqualWidthSplit (const int* d_prefix_0,
     }
     else {
         FindBestGiniSplitKernel<<<grid_split, block_split>>>(
-            d_prefix_0, d_prefix_1, d_min_vals, d_bin_widths, num_proj, num_bins,
+            d_prefix_1, d_prefix_2, d_min_vals, d_bin_widths, num_proj, num_bins,
             d_out_per_bin_per_proj);
     }
     CUDA_CHECK(cudaPeekAtLastError());
