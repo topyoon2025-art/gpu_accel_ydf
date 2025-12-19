@@ -108,8 +108,8 @@ int main(int argc, char** argv) {
 
     if (use_trunk) {
         num_rows = trunk_num_rows;
-        num_features = 4096;
-        num_proj = sqrt(num_features) * 1.5;
+        num_features = 100; // TODO reduced from 4096 due to GPU memory limitations.
+        num_proj = 75;//sqrt(num_features) * 1.5;
         num_bins = 256;
         // num_rows = num_rows;
     } else {
@@ -335,36 +335,36 @@ int main(int argc, char** argv) {
     float* d_bin_widths_exact = nullptr;
     double elapsed_apply_exact = 0;
 
-    // Print results
-    printf("\n=== RESULTS ===\n");
+    // Apply projection (split_method = 0 for exact)
+    ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
+                            &d_min_vals_exact, &d_max_vals_exact, &d_bin_widths_exact,
+                            projection_col_idx, projection_weights,
+                            num_rows, num_proj, num_rows,
+                            &elapsed_apply_exact, 0, true);  // 0 = exact split method
 
-// Apply projection (split_method = 0 for exact)
-ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
-                        &d_min_vals_exact, &d_max_vals_exact, &d_bin_widths_exact,
-                        projection_col_idx, projection_weights,
-                        num_rows, num_proj, num_rows,
-                        &elapsed_apply_exact, 0, true);  // 0 = exact split method
+    // Allocate memory for sorted indices
+    unsigned int* d_sorted_indices;
+    CUDA_CHECK(cudaMalloc(&d_sorted_indices, num_proj * num_rows * sizeof(unsigned int)));
 
-// Allocate memory for sorted indices
-unsigned int* d_sorted_indices;
-CUDA_CHECK(cudaMalloc(&d_sorted_indices, num_proj * num_rows * sizeof(unsigned int)));
+    // Sort indices (required for exact split)
+    ThrustSortIndicesOnly(d_col_add_projected, d_sorted_indices, d_selected_examples, 
+                        num_rows, num_proj);
 
-// Sort indices (required for exact split)
-ThrustSortIndicesOnly(d_col_add_projected, d_sorted_indices, d_selected_examples, 
-                      num_rows, num_proj);
+    // Perform exact split
+    int best_proj_exact, best_split_exact;
+    float best_gain_exact, best_threshold_exact;
+    double elapsed_split_exact = 0;
 
-// Perform exact split
-int best_proj_exact, best_split_exact;
-float best_gain_exact, best_threshold_exact;
-double elapsed_split_exact = 0;
-
-ExactSplit(d_sorted_indices, d_labels, 
-           &best_gain_exact, &best_split_exact, &best_threshold_exact,
-           &best_proj_exact,
-           num_rows, num_proj, d_col_add_projected,
-           &elapsed_split_exact, true, 1);  // 1 = gini
+    ExactSplit(d_sorted_indices, d_labels, 
+            &best_gain_exact, &best_split_exact, &best_threshold_exact,
+            &best_proj_exact,
+            num_rows, num_proj, d_col_add_projected,
+            &elapsed_split_exact, true, 1);  // 1 = gini
 
     auto end_exact = std::chrono::high_resolution_clock::now();
+
+    // Print results
+    printf("\n=== RESULTS ===\n");
 
     printf("Equal-Width Histogram:\n");
     printf("  Best projection: %d\n", best_proj_eq);
