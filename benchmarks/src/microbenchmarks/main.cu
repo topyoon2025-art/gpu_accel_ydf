@@ -354,8 +354,7 @@ ExactSplit(d_sorted_indices, d_labels,
            num_selected, num_proj, d_col_add_projected,
            &elapsed_split_exact, true, 1);  // 1 = gini
 
-auto end_exact = std::chrono::high_resolution_clock::now();
-
+    auto end_exact = std::chrono::high_resolution_clock::now();
 
     printf("Equal-Width Histogram:\n");
     printf("  Best projection: %d\n", best_proj_eq);
@@ -364,31 +363,31 @@ auto end_exact = std::chrono::high_resolution_clock::now();
     printf("  Best threshold: %f\n", best_threshold_eq);
     printf("  Total time: %f ms\n", 
            std::chrono::duration<double, std::milli>(end_equal - start_equal).count());
-    
+
+    printf("\nExact Split:\n");
+    printf("  Best projection: %d\n", best_proj_exact);
+    printf("  Best split index: %d\n", best_split_exact);
+    printf("  Best gain: %f\n", best_gain_exact);
+    printf("  Best threshold: %f\n", best_threshold_exact);
+    printf("  Total time: %f ms\n", 
+    std::chrono::duration<double, std::milli>(end_exact - start_exact).count());
+           
     printf("\nVariable-Width Histogram:\n");
     printf("  Best projection: %d\n", best_proj_var);
     printf("  Best bin: %d\n", best_bin_var);
     printf("  Best gain: %f\n", best_gain_var);
     printf("  Best threshold: %f\n", best_threshold_var);
     printf("  Total time: %f ms\n", 
-           std::chrono::duration<double, std::milli>(end_var - start_var).count());
-
-           printf("\nExact Split:\n");
-printf("  Best projection: %d\n", best_proj_exact);
-printf("  Best split index: %d\n", best_split_exact);
-printf("  Best gain: %f\n", best_gain_exact);
-printf("  Best threshold: %f\n", best_threshold_exact);
-printf("  Total time: %f ms\n", 
-       std::chrono::duration<double, std::milli>(end_exact - start_exact).count());
+    std::chrono::duration<double, std::milli>(end_var - start_var).count());
     
-printf("\nTiming Comparison:\n");
-double time_equal = std::chrono::duration<double, std::milli>(end_equal - start_equal).count();
-double time_var = std::chrono::duration<double, std::milli>(end_var - start_var).count();
-double time_exact = std::chrono::duration<double, std::milli>(end_exact - start_exact).count();
+    printf("\nTiming Comparison:\n");
+    double time_equal = std::chrono::duration<double, std::milli>(end_equal - start_equal).count();
+    double time_var = std::chrono::duration<double, std::milli>(end_var - start_var).count();
+    double time_exact = std::chrono::duration<double, std::milli>(end_exact - start_exact).count();
 
-printf("  Speedup (Exact/Equal): %.2fx\n", time_exact / time_equal);
-printf("  Speedup (Exact/Variable): %.2fx\n", time_exact / time_var);
-printf("  Speedup (Variable/Equal): %.2fx\n", time_var / time_equal);
+    printf("  Speedup (Exact/Equal): %.2fx\n", time_exact / time_equal);
+    printf("  Speedup (Exact/Variable): %.2fx\n", time_exact / time_var);
+    printf("  Speedup (Variable/Equal): %.2fx\n", time_var / time_equal);
     
     // Cleanup
     CUDA_CHECK(cudaFree(d_data));
