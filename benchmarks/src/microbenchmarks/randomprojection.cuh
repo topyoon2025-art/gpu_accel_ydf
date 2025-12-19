@@ -3,22 +3,16 @@
 #include <cuda.h>
 #include <cstddef>  // for std::size_t
 
-#include <iostream>
-#include <vector>
 #include <cstdlib>   // for rand()
 #include <ctime>     // for time()
 #include <random>
 #include <cmath>
-#include <limits>
 #include <cfloat>
 #include <numeric>
 #include <algorithm>
-#include <iomanip>
-#include <vector>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 #include <cublas_v2.h>
-#include <cstdint>
 #include <chrono>
 #include <cstring>
 // #include "randomprojection.hpp"
