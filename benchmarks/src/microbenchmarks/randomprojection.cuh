@@ -33,6 +33,7 @@
 #include <thrust/sequence.h>
 
 
+
 #define CUDA_CHECK(call)                                                      \
     do {                                                                      \
         cudaError_t _status = (call);                                         \
@@ -972,6 +973,10 @@ void VariableWidthSplit(const int* d_prefix_1,
     float* d_out_per_bin_per_proj;
     float* d_threshold_per_bin_per_proj;
     CUDA_CHECK(cudaMalloc(&d_out_per_bin_per_proj, num_proj * num_bins * sizeof(float)));
+    // After cudaMalloc for d_out_per_bin_per_proj:
+    thrust::device_ptr<float> p(d_out_per_bin_per_proj);
+    thrust::fill(thrust::device, p, p + static_cast<size_t>(num_proj) * num_bins, -std::numeric_limits<float>::infinity());
+
     CUDA_CHECK(cudaMalloc(&d_threshold_per_bin_per_proj, num_proj * num_bins * sizeof(float)));
 
     void* d_temp_storage = nullptr;
