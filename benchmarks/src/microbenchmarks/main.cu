@@ -98,10 +98,10 @@ int main(int argc, char** argv) {
 
     if (use_trunk) {
         num_rows = 100000;
-        num_features = 100;
-        num_proj = 10;
+        num_features = 4096;
+        num_proj = 100;
         num_bins = 256;
-        num_selected = 50000;
+        num_selected = num_rows;
     } else {
         // Toy dataset parameters
         num_rows = 20;           // Small enough to manually verify
@@ -385,9 +385,8 @@ ExactSplit(d_sorted_indices, d_labels,
     double time_var = std::chrono::duration<double, std::milli>(end_var - start_var).count();
     double time_exact = std::chrono::duration<double, std::milli>(end_exact - start_exact).count();
 
-    printf("  Speedup (Exact/Equal): %.2fx\n", time_exact / time_equal);
-    printf("  Speedup (Exact/Variable): %.2fx\n", time_exact / time_var);
-    printf("  Speedup (Variable/Equal): %.2fx\n", time_var / time_equal);
+    printf("  Speedup (Variable/Exact): %.2fx\n", time_exact / time_var);
+    printf("  Speedup (Variable/Equal): %.2fx\n", time_equal / time_var);
     
     // Cleanup
     CUDA_CHECK(cudaFree(d_data));
