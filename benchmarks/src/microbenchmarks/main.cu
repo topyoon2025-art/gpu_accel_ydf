@@ -69,20 +69,30 @@ void generateSimpleTestData(std::vector<float>& h_data,
 }
 
 void printUsage(const char* program_name) {
-    printf("Usage: %s [--toy | --trunk]\n", program_name);
-    printf("  --toy    Use simple toy dataset (default)\n");
-    printf("  --trunk  Use trunk synthetic dataset\n");
+    printf("Usage: %s [--toy | --trunk [num_rows]]\n", program_name);
+    printf("  --toy              Use simple toy dataset (default)\n");
+    printf("  --trunk [num_rows] Use trunk synthetic dataset with specified number of rows (default: 100000)\n");
 }
 
 // Trunk main
 int main(int argc, char** argv) {
     // Parse command line arguments
     bool use_trunk = true; // Default to trunk
+    int trunk_num_rows = 100000; // Default number of rows for trunk dataset
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--toy") == 0) {
             use_trunk = false;
         } else if (strcmp(argv[i], "--trunk") == 0) {
             use_trunk = true;
+            // Check if next argument is a number (num_rows)
+            if (i + 1 < argc) {
+                char* endptr;
+                long val = strtol(argv[i + 1], &endptr, 10);
+                if (*endptr == '\0' && val > 0) {
+                    trunk_num_rows = (int)val;
+                    i++; // Skip the next argument since we've processed it
+                }
+            }
         } else {
             printUsage(argv[0]);
             return 1;
@@ -93,28 +103,28 @@ int main(int argc, char** argv) {
     warmupfunction();
     
     // Test parameters
-    int num_rows, num_features, num_proj, num_bins, num_selected;
+    int num_rows, num_features, num_proj, num_bins;
     const unsigned int seed = 42;  // Fixed seed for reproducibility
 
     if (use_trunk) {
-        num_rows = 100000;
+        num_rows = trunk_num_rows;
         num_features = 4096;
-        num_proj = 100;
+        num_proj = sqrt(num_features) * 1.5;
         num_bins = 256;
-        num_selected = num_rows;
+        // num_rows = num_rows;
     } else {
         // Toy dataset parameters
         num_rows = 20;           // Small enough to manually verify
         num_features = 3;
         num_proj = 300;
         num_bins = 10;           // Small number of bins
-        num_selected = num_rows; // Use all rows
+        num_rows = num_rows; // Use all rows
     }
     
     // Generate test data on host
     std::vector<float> h_data(num_features * num_rows);
     std::vector<unsigned int> h_labels(num_rows);
-    std::vector<unsigned int> h_selected_examples(num_selected);
+    std::vector<unsigned int> h_selected_examples(num_rows);
     
     // Generate Data based on flag
     if (use_trunk) {
@@ -142,7 +152,7 @@ int main(int argc, char** argv) {
     std::vector<int> indices(num_rows);
     std::iota(indices.begin(), indices.end(), 0);
     std::shuffle(indices.begin(), indices.end(), gen);
-    for (int i = 0; i < num_selected; ++i) {
+    for (int i = 0; i < num_rows; ++i) {
         h_selected_examples[i] = indices[i];
     }
     
@@ -218,13 +228,13 @@ int main(int argc, char** argv) {
     
     CUDA_CHECK(cudaMalloc(&d_data, num_features * num_rows * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_labels, num_rows * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_selected * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_selected * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
     
     // Copy data to device
     CUDA_CHECK(cudaMemcpy(d_data, h_data.data(), num_features * num_rows * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_labels, h_labels.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_selected * sizeof(unsigned int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
     
     // Test equal-width histogram
     printf("\nTesting Equal-Width Histogram...\n");
@@ -239,7 +249,7 @@ int main(int argc, char** argv) {
     ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
                             &d_min_vals_eq, &d_max_vals_eq, &d_bin_widths_eq,
                             projection_col_idx, projection_weights,
-                            num_selected, num_proj, num_rows,
+                            num_rows, num_proj, num_rows,
                             &elapsed_apply_eq, 2, true);
     
     // Build histogram and find best split
@@ -248,7 +258,7 @@ int main(int argc, char** argv) {
                        d_min_vals_eq, d_max_vals_eq, d_bin_widths_eq,
                     //    &d_prefix_0_eq,
                        &d_prefix_1_eq, &d_prefix_2_eq,
-                       num_selected, num_bins, num_proj);
+                       num_rows, num_bins, num_proj);
     
     int best_proj_eq, best_bin_eq, num_pos_examples_eq;
     float best_gain_eq, best_threshold_eq;
@@ -258,7 +268,7 @@ int main(int argc, char** argv) {
         // d_prefix_0_eq,
         d_prefix_1_eq, d_prefix_2_eq,
                    d_min_vals_eq, d_bin_widths_eq,
-                   num_proj, num_bins, num_selected,
+                   num_proj, num_bins, num_rows,
                    &best_proj_eq, &best_bin_eq, &best_gain_eq, &best_threshold_eq,
                    &num_pos_examples_eq, &elapsed_split_eq, true, 1);  // 1 = gini
     
@@ -268,9 +278,9 @@ int main(int argc, char** argv) {
     printf("\nTesting Variable-Width Histogram...\n");
     
     // Need to reallocate d_col_add_projected and d_selected_examples as they were freed
-    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_selected * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_selected * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_selected * sizeof(unsigned int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
     
     auto start_var = std::chrono::high_resolution_clock::now();
     
@@ -283,7 +293,7 @@ int main(int argc, char** argv) {
     ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
                             &d_min_vals_var, &d_max_vals_var, &d_bin_widths_var,
                             projection_col_idx, projection_weights,
-                            num_selected, num_proj, num_rows,
+                            num_rows, num_proj, num_rows,
                             &elapsed_apply_var, 3, true);
     
     // Build variable-width histogram and find best split
@@ -294,7 +304,7 @@ int main(int argc, char** argv) {
                         //   &d_prefix_0_var,
                           &d_prefix_1_var, &d_prefix_2_var,
                           &d_bin_boundaries_var,
-                          num_selected, num_bins, num_proj);
+                          num_rows, num_bins, num_proj);
     
     int best_proj_var, best_bin_var, num_pos_examples_var;
     float best_gain_var, best_threshold_var;
@@ -304,7 +314,7 @@ int main(int argc, char** argv) {
         // d_prefix_0_var,
         d_prefix_1_var, d_prefix_2_var,
                       d_min_vals_var, d_bin_boundaries_var,
-                      num_proj, num_bins, num_selected,
+                      num_proj, num_bins, num_rows,
                       &best_proj_var, &best_bin_var, &best_gain_var, &best_threshold_var,
                       &num_pos_examples_var, &elapsed_split_var, true, 1);  // 1 = gini
     
@@ -314,9 +324,9 @@ int main(int argc, char** argv) {
     printf("\nTesting Exact Split...\n");
 
     // Need to reallocate d_col_add_projected and d_selected_examples as they were freed
-    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_selected * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_selected * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_selected * sizeof(unsigned int), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
 
     auto start_exact = std::chrono::high_resolution_clock::now();
 
@@ -332,16 +342,16 @@ int main(int argc, char** argv) {
 ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
                         &d_min_vals_exact, &d_max_vals_exact, &d_bin_widths_exact,
                         projection_col_idx, projection_weights,
-                        num_selected, num_proj, num_rows,
+                        num_rows, num_proj, num_rows,
                         &elapsed_apply_exact, 0, true);  // 0 = exact split method
 
 // Allocate memory for sorted indices
 unsigned int* d_sorted_indices;
-CUDA_CHECK(cudaMalloc(&d_sorted_indices, num_proj * num_selected * sizeof(unsigned int)));
+CUDA_CHECK(cudaMalloc(&d_sorted_indices, num_proj * num_rows * sizeof(unsigned int)));
 
 // Sort indices (required for exact split)
 ThrustSortIndicesOnly(d_col_add_projected, d_sorted_indices, d_selected_examples, 
-                      num_selected, num_proj);
+                      num_rows, num_proj);
 
 // Perform exact split
 int best_proj_exact, best_split_exact;
@@ -351,7 +361,7 @@ double elapsed_split_exact = 0;
 ExactSplit(d_sorted_indices, d_labels, 
            &best_gain_exact, &best_split_exact, &best_threshold_exact,
            &best_proj_exact,
-           num_selected, num_proj, d_col_add_projected,
+           num_rows, num_proj, d_col_add_projected,
            &elapsed_split_exact, true, 1);  // 1 = gini
 
     auto end_exact = std::chrono::high_resolution_clock::now();
