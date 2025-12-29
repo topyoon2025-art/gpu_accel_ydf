@@ -273,95 +273,187 @@ int main(int argc, char** argv) {
                    &num_pos_examples_eq, &elapsed_split_eq, true, 1);  // 1 = gini
     
     auto end_equal = std::chrono::high_resolution_clock::now();
-    
+
     // Test variable-width histogram
-    printf("\nTesting Variable-Width Histogram...\n");
+    printf("\nTesting Binary Search Variable-Width Histogram...\n");
     
     // Need to reallocate d_col_add_projected and d_selected_examples as they were freed
     CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
     CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
     
-    auto start_var = std::chrono::high_resolution_clock::now();
+    auto start_var_binary_search = std::chrono::high_resolution_clock::now();
     
-    float* d_min_vals_var = nullptr;
-    float* d_max_vals_var = nullptr;
-    float* d_bin_widths_var = nullptr;
-    double elapsed_apply_var = 0;
+    float* d_min_vals_var_binary_search = nullptr;
+    float* d_max_vals_var_binary_search = nullptr;
+    float* d_bin_widths_var_binary_search = nullptr;
+    double elapsed_apply_var_binary_search = 0;
     
     // Apply projection with variable-width (split_method = 3)
     ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
-                            &d_min_vals_var, &d_max_vals_var, &d_bin_widths_var,
+                            &d_min_vals_var_binary_search, &d_max_vals_var_binary_search, &d_bin_widths_var_binary_search,
                             projection_col_idx, projection_weights,
                             num_rows, num_proj, num_rows,
-                            &elapsed_apply_var, 3, true);
+                            &elapsed_apply_var_binary_search, 3, true);
     
     // Build variable-width histogram and find best split
-    int* d_prefix_0_var, *d_prefix_1_var, *d_prefix_2_var;
-    float* d_bin_boundaries_var;
+    int* d_prefix_0_var_binary_search, *d_prefix_1_var_binary_search, *d_prefix_2_var_binary_search;
+    float* d_bin_boundaries_var_binary_search;
     VariableWidthHistogram(d_col_add_projected, d_selected_examples, d_labels,
-                          d_min_vals_var, d_max_vals_var,
+                          d_min_vals_var_binary_search, d_max_vals_var_binary_search,
                         //   &d_prefix_0_var,
-                          &d_prefix_1_var, &d_prefix_2_var,
-                          &d_bin_boundaries_var,
-                          num_rows, num_bins, num_proj);
+                          &d_prefix_1_var_binary_search, &d_prefix_2_var_binary_search,
+                          &d_bin_boundaries_var_binary_search,
+                          num_rows, num_bins, num_proj, VBIN_LINEAR);
     
-    int best_proj_var, best_bin_var, num_pos_examples_var;
-    float best_gain_var, best_threshold_var;
-    double elapsed_split_var = 0;
+    int best_proj_var_binary_search, best_bin_var_binary_search, num_pos_examples_var_binary_search;
+    float best_gain_var_binary_search, best_threshold_var_binary_search;
+    double elapsed_split_var_binary_search = 0;
     
     VariableWidthSplit(
         // d_prefix_0_var,
-        d_prefix_1_var, d_prefix_2_var,
-                      d_min_vals_var, d_bin_boundaries_var,
+        d_prefix_1_var_binary_search, d_prefix_2_var_binary_search,
+                      d_min_vals_var_binary_search, d_bin_boundaries_var_binary_search,
                       num_proj, num_bins, num_rows,
-                      &best_proj_var, &best_bin_var, &best_gain_var, &best_threshold_var,
-                      &num_pos_examples_var, &elapsed_split_var, true, 1);  // 1 = gini
+                      &best_proj_var_binary_search, &best_bin_var_binary_search, &best_gain_var_binary_search, &best_threshold_var_binary_search,
+                      &num_pos_examples_var_binary_search, &elapsed_split_var_binary_search, true, 1);  // 1 = gini
     
-    auto end_var = std::chrono::high_resolution_clock::now();
+    auto end_var_binary_search = std::chrono::high_resolution_clock::now();
     
-    // Test exact splitting
-    printf("\nTesting Exact Split...\n");
-
+    // Test variable-width histogram
+    printf("\nTesting Linear Scan Variable-Width Histogram...\n");
+    
     // Need to reallocate d_col_add_projected and d_selected_examples as they were freed
     CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
     CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
     CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
-
-    auto start_exact = std::chrono::high_resolution_clock::now();
-
-    float* d_min_vals_exact = nullptr;
-    float* d_max_vals_exact = nullptr;
-    float* d_bin_widths_exact = nullptr;
-    double elapsed_apply_exact = 0;
-
-    // Apply projection (split_method = 0 for exact)
+    
+    auto start_var_linear_scan = std::chrono::high_resolution_clock::now();
+    
+    float* d_min_vals_var_linear_scan = nullptr;
+    float* d_max_vals_var_linear_scan = nullptr;
+    float* d_bin_widths_var_linear_scan = nullptr;
+    double elapsed_apply_var_linear_scan = 0;
+    
+    // Apply projection with variable-width (split_method = 3)
     ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
-                            &d_min_vals_exact, &d_max_vals_exact, &d_bin_widths_exact,
+                            &d_min_vals_var_linear_scan, &d_max_vals_var_linear_scan, &d_bin_widths_var_linear_scan,
                             projection_col_idx, projection_weights,
                             num_rows, num_proj, num_rows,
-                            &elapsed_apply_exact, 0, true);  // 0 = exact split method
+                            &elapsed_apply_var_linear_scan, 3, true);
+    
+    // Build variable-width histogram and find best split
+    int* d_prefix_0_var_linear_scan, *d_prefix_1_var_linear_scan, *d_prefix_2_var_linear_scan;
+    float* d_bin_boundaries_var_linear_scan;
+    VariableWidthHistogram(d_col_add_projected, d_selected_examples, d_labels,
+                          d_min_vals_var_linear_scan, d_max_vals_var_linear_scan,
+                        //   &d_prefix_0_var,
+                          &d_prefix_1_var_linear_scan, &d_prefix_2_var_linear_scan,
+                          &d_bin_boundaries_var_linear_scan,
+                          num_rows, num_bins, num_proj, VBIN_LINEAR);
+    
+    int best_proj_var_linear_scan, best_bin_var_linear_scan, num_pos_examples_var_linear_scan;
+    float best_gain_var_linear_scan, best_threshold_var_linear_scan;
+    double elapsed_split_var_linear_scan = 0;
+    
+    VariableWidthSplit(
+        // d_prefix_0_var,
+        d_prefix_1_var_linear_scan, d_prefix_2_var_linear_scan,
+                      d_min_vals_var_linear_scan, d_bin_boundaries_var_linear_scan,
+                      num_proj, num_bins, num_rows,
+                      &best_proj_var_linear_scan, &best_bin_var_linear_scan, &best_gain_var_linear_scan, &best_threshold_var_linear_scan,
+                      &num_pos_examples_var_linear_scan, &elapsed_split_var_linear_scan, true, 1);  // 1 = gini
+    
+    auto end_var_linear_scan = std::chrono::high_resolution_clock::now();
 
-    // Allocate memory for sorted indices
-    unsigned int* d_sorted_indices;
-    CUDA_CHECK(cudaMalloc(&d_sorted_indices, num_proj * num_rows * sizeof(unsigned int)));
 
-    // Sort indices (required for exact split)
-    ThrustSortIndicesOnly(d_col_add_projected, d_sorted_indices, d_selected_examples, 
-                        num_rows, num_proj);
+    printf("\nTesting Variable-Width (Binary Search Method) Histogram...\n");
+    
+    // Need to reallocate d_col_add_projected and d_selected_examples as they were freed
+    CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
+    CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
+    
+    auto start_var_2_pass = std::chrono::high_resolution_clock::now();
+    
+    float* d_min_vals_var_2_pass = nullptr;
+    float* d_max_vals_var_2_pass = nullptr;
+    float* d_bin_widths_var_2_pass = nullptr;
+    double elapsed_apply_var_2_pass = 0;
+    
+    // Apply projection with variable-width (split_method = 3)
+    ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
+                            &d_min_vals_var_2_pass, &d_max_vals_var_2_pass, &d_bin_widths_var_2_pass,
+                            projection_col_idx, projection_weights,
+                            num_rows, num_proj, num_rows,
+                            &elapsed_apply_var_2_pass, 3, true);
+    
+    // Build variable-width histogram and find best split
+    int* d_prefix_0_var_2_pass, *d_prefix_1_var_2_pass, *d_prefix_2_var_2_pass;
+    float* d_bin_boundaries_var_2_pass;
+    VariableWidthHistogram(d_col_add_projected, d_selected_examples, d_labels,
+                          d_min_vals_var_2_pass, d_max_vals_var_2_pass,
+                        //   &d_prefix_0_var,
+                          &d_prefix_1_var_2_pass, &d_prefix_2_var_2_pass,
+                          &d_bin_boundaries_var_2_pass,
+                          num_rows, num_bins, num_proj, VBIN_LINEAR);
+    
+    int best_proj_var_2_pass, best_bin_var_2_pass, num_pos_examples_var_2_pass;
+    float best_gain_var_2_pass, best_threshold_var_2_pass;
+    double elapsed_split_var_2_pass = 0;
+    
+    VariableWidthSplit(
+        // d_prefix_0_var,
+        d_prefix_1_var_2_pass, d_prefix_2_var_2_pass,
+                      d_min_vals_var_2_pass, d_bin_boundaries_var_2_pass,
+                      num_proj, num_bins, num_rows,
+                      &best_proj_var_2_pass, &best_bin_var_2_pass, &best_gain_var_2_pass, &best_threshold_var_2_pass,
+                      &num_pos_examples_var_2_pass, &elapsed_split_var_2_pass, true, 1);  // 1 = gini
+    
+    auto end_var_2_pass = std::chrono::high_resolution_clock::now();
+    
+    // Test exact splitting
+    // printf("\nTesting Exact Split...\n");
 
-    // Perform exact split
-    int best_proj_exact, best_split_exact;
-    float best_gain_exact, best_threshold_exact;
-    double elapsed_split_exact = 0;
+    // // Need to reallocate d_col_add_projected and d_selected_examples as they were freed
+    // CUDA_CHECK(cudaMalloc(&d_col_add_projected, num_proj * num_rows * sizeof(float)));
+    // CUDA_CHECK(cudaMalloc(&d_selected_examples, num_rows * sizeof(unsigned int)));
+    // CUDA_CHECK(cudaMemcpy(d_selected_examples, h_selected_examples.data(), num_rows * sizeof(unsigned int), cudaMemcpyHostToDevice));
 
-    ExactSplit(d_sorted_indices, d_labels, 
-            &best_gain_exact, &best_split_exact, &best_threshold_exact,
-            &best_proj_exact,
-            num_rows, num_proj, d_col_add_projected,
-            &elapsed_split_exact, true, 1);  // 1 = gini
+    // auto start_exact = std::chrono::high_resolution_clock::now();
 
-    auto end_exact = std::chrono::high_resolution_clock::now();
+    // float* d_min_vals_exact = nullptr;
+    // float* d_max_vals_exact = nullptr;
+    // float* d_bin_widths_exact = nullptr;
+    // double elapsed_apply_exact = 0;
+
+    // // Apply projection (split_method = 0 for exact)
+    // ApplyProjectionColumnADD(d_data, d_selected_examples, d_col_add_projected,
+    //                         &d_min_vals_exact, &d_max_vals_exact, &d_bin_widths_exact,
+    //                         projection_col_idx, projection_weights,
+    //                         num_rows, num_proj, num_rows,
+    //                         &elapsed_apply_exact, 0, true);  // 0 = exact split method
+
+    // // Allocate memory for sorted indices
+    // unsigned int* d_sorted_indices;
+    // CUDA_CHECK(cudaMalloc(&d_sorted_indices, num_proj * num_rows * sizeof(unsigned int)));
+
+    // // Sort indices (required for exact split)
+    // ThrustSortIndicesOnly(d_col_add_projected, d_sorted_indices, d_selected_examples, 
+    //                     num_rows, num_proj);
+
+    // // Perform exact split
+    // int best_proj_exact, best_split_exact;
+    // float best_gain_exact, best_threshold_exact;
+    // double elapsed_split_exact = 0;
+
+    // ExactSplit(d_sorted_indices, d_labels, 
+    //         &best_gain_exact, &best_split_exact, &best_threshold_exact,
+    //         &best_proj_exact,
+    //         num_rows, num_proj, d_col_add_projected,
+    //         &elapsed_split_exact, true, 1);  // 1 = gini
+
+    // auto end_exact = std::chrono::high_resolution_clock::now();
 
     // Print results
     printf("\n=== RESULTS ===\n");
@@ -371,32 +463,47 @@ int main(int argc, char** argv) {
     printf("  Best bin: %d\n", best_bin_eq);
     printf("  Best gain: %f\n", best_gain_eq);
     printf("  Best threshold: %f\n", best_threshold_eq);
-    printf("  Total time: %f ms\n", 
-           std::chrono::duration<double, std::milli>(end_equal - start_equal).count());
-
-    printf("\nExact Split:\n");
-    printf("  Best projection: %d\n", best_proj_exact);
-    printf("  Best split index: %d\n", best_split_exact);
-    printf("  Best gain: %f\n", best_gain_exact);
-    printf("  Best threshold: %f\n", best_threshold_exact);
-    printf("  Total time: %f ms\n", 
-    std::chrono::duration<double, std::milli>(end_exact - start_exact).count());
-           
-    printf("\nVariable-Width Histogram:\n");
-    printf("  Best projection: %d\n", best_proj_var);
-    printf("  Best bin: %d\n", best_bin_var);
-    printf("  Best gain: %f\n", best_gain_var);
-    printf("  Best threshold: %f\n", best_threshold_var);
-    printf("  Total time: %f ms\n", 
-    std::chrono::duration<double, std::milli>(end_var - start_var).count());
-    
-    printf("\nTiming Comparison:\n");
     double time_equal = std::chrono::duration<double, std::milli>(end_equal - start_equal).count();
-    double time_var = std::chrono::duration<double, std::milli>(end_var - start_var).count();
-    double time_exact = std::chrono::duration<double, std::milli>(end_exact - start_exact).count();
+    printf("  Total time: %f ms\n", time_equal);
 
-    printf("  Speedup (Variable/Exact): %.2fx\n", time_exact / time_var);
-    printf("  Speedup (Variable/Equal): %.2fx\n", time_equal / time_var);
+    // printf("\nExact Split:\n");
+    // printf("  Best projection: %d\n", best_proj_exact);
+    // printf("  Best split index: %d\n", best_split_exact);
+    // printf("  Best gain: %f\n", best_gain_exact);
+    // printf("  Best threshold: %f\n", best_threshold_exact);
+    // printf("  Total time: %f ms\n", 
+    // std::chrono::duration<double, std::milli>(end_exact - start_exact).count());
+           
+    printf("\nBinary Search Variable-Width Histogram:\n");
+    printf("  Best projection: %d\n", best_proj_var_binary_search);
+    printf("  Best bin: %d\n", best_bin_var_binary_search);
+    printf("  Best gain: %f\n", best_gain_var_binary_search);
+    printf("  Best threshold: %f\n", best_threshold_var_binary_search);
+    double time_var_binary_search = std::chrono::duration<double, std::milli>(end_var_binary_search - start_var_binary_search).count();
+    printf("  Total time: %f ms\n", time_var_binary_search);
+
+    printf("\nLinear Scan Variable-Width Histogram:\n");
+    printf("  Best projection: %d\n", best_proj_var_linear_scan);
+    printf("  Best bin: %d\n", best_bin_var_linear_scan);
+    printf("  Best gain: %f\n", best_gain_var_linear_scan);
+    printf("  Best threshold: %f\n", best_threshold_var_linear_scan);
+    double time_var_linear_scan = std::chrono::duration<double, std::milli>(end_var_linear_scan - start_var_linear_scan).count();
+    printf("  Total time: %f ms\n", time_var_linear_scan);
+
+    printf("\n2-pass Variable-Width Histogram:\n");
+    printf("  Best projection: %d\n", best_proj_var_2_pass);
+    printf("  Best bin: %d\n", best_bin_var_2_pass);
+    printf("  Best gain: %f\n", best_gain_var_2_pass);
+    printf("  Best threshold: %f\n", best_threshold_var_2_pass);
+    double time_var_2_pass = std::chrono::duration<double, std::milli>(end_var_2_pass - start_var_2_pass).count();
+    printf("  Total time: %f ms\n", time_var_2_pass);
+    
+    // printf("\nTiming Comparison:\n");
+    
+    // double time_exact = std::chrono::duration<double, std::milli>(end_exact - start_exact).count();
+
+    // printf("  Speedup (Variable/Exact): %.2fx\n", time_exact / time_var);
+    // printf("  Speedup (Variable/Equal): %.2fx\n", time_equal / time_var);
     
     // Cleanup
     CUDA_CHECK(cudaFree(d_data));

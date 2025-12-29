@@ -81,25 +81,6 @@ void EqualWidthSplit(
     const int comp_method
 );
 
-void BuildHistogramAndFindBestSplit(
-    const float* d_col_add_projected,
-    const unsigned int* d_selected_examples,
-    const unsigned int* d_global_labels_data,
-    float* d_min_vals,
-    float* d_max_vals,
-    float* d_bin_widths,
-    const int num_rows,
-    const int num_bins,
-    const int num_proj,
-    int* best_proj,
-    int* best_bin_out,
-    float* best_gain_out,
-    float* best_threshold_out,
-    int* num_pos_examples_out,
-    const bool use_variable_width,
-    const int comp_method
-);
-
 __global__ void warmup() {
     // Empty kernel for warm-up
 }
@@ -791,6 +772,42 @@ __global__ void BuildHistogramRandomWidthKernel(
 }
 
 
+inline void BuildHistogramRandomWidthKernelDispatch(
+    VarBinAssignMethod method,
+    dim3 grid, int threads_per_block, int sharedMemSize,
+    const float* d_attributes,
+    const unsigned int* d_row_indices,
+    const unsigned int* d_labels,
+    int* d_hist_class1,
+    int* d_hist_class2,
+    const float* d_bin_boundaries,
+    int num_rows, int num_proj, int num_bins)
+{
+    switch (method) {
+        case VBIN_BINARY:
+            BuildHistogramRandomWidthKernel<VBIN_BINARY><<<grid, threads_per_block, sharedMemSize>>>(
+                d_attributes, d_row_indices, d_labels,
+                d_hist_class1, d_hist_class2,
+                d_bin_boundaries, num_rows, num_proj, num_bins);
+            break;
+        case VBIN_LINEAR:
+            BuildHistogramRandomWidthKernel<VBIN_LINEAR><<<grid, threads_per_block, sharedMemSize>>>(
+                d_attributes, d_row_indices, d_labels,
+                d_hist_class1, d_hist_class2,
+                d_bin_boundaries, num_rows, num_proj, num_bins);
+            break;
+        case VBIN_2_PASS:
+        default:
+            // Fallback to linear until 2-pass is implemented
+            BuildHistogramRandomWidthKernel<VBIN_LINEAR><<<grid, threads_per_block, sharedMemSize>>>(
+                d_attributes, d_row_indices, d_labels,
+                d_hist_class1, d_hist_class2,
+                d_bin_boundaries, num_rows, num_proj, num_bins);
+            break;
+    }
+}
+
+
 template <int BLOCK_SIZE>
 __global__ void BuildHistogramEqualWidthKernel(
     const float* __restrict__ d_attributes, //attributes
@@ -874,7 +891,8 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
                            float** d_bin_boundaries_out,  // New output parameter
                            const int num_rows,
                            const int num_bins,
-                           const int num_proj)
+                           const int num_proj,
+                        VarBinAssignMethod assign_method)
 {
     // Generate random bin boundaries
     std::vector<float> h_boundaries = generateRandomBinBoundaries(num_bins, num_proj, 
@@ -904,16 +922,15 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
     dim3 grid(blocks_per_grid, num_proj);
     int sharedMemSize = 3 * num_bins * sizeof(int);
     
-    BuildHistogramRandomWidthKernel<VBIN_LINEAR><<<grid, threads_per_block, sharedMemSize>>>(
+    BuildHistogramRandomWidthKernelDispatch(
+        assign_method,
+        grid, threads_per_block, sharedMemSize,
         d_col_add_projected,
         d_selected_examples,
         d_global_labels_data,
-        d_hist_class1,
-        d_hist_class2,
+        d_hist_class1, d_hist_class2,
         d_bin_boundaries,
-        num_rows,
-        num_proj,
-        num_bins);
+        num_rows, num_proj, num_bins);
     
     CUDA_CHECK(cudaPeekAtLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
@@ -1176,62 +1193,6 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     CUDA_CHECK(cudaFree(d_max_vals));
     CUDA_CHECK(cudaFree((void *)d_selected_examples));
     CUDA_CHECK(cudaFree((void *)d_col_add_projected));
-}
-
-void BuildHistogramAndFindBestSplit(
-    const float* d_col_add_projected,
-    const unsigned int* d_selected_examples,
-    const unsigned int* d_global_labels_data,
-    float* d_min_vals,
-    float* d_max_vals,
-    float* d_bin_widths,
-    const int num_rows,
-    const int num_bins,
-    const int num_proj,
-    int* best_proj,
-    int* best_bin_out,
-    float* best_gain_out,
-    float* best_threshold_out,
-    int* num_pos_examples_out,
-    const bool use_variable_width,  // NEW parameter
-    const int comp_method)
-{
-    // int* d_prefix_0;
-    int* d_prefix_1;
-    int* d_prefix_2;
-    float* d_bin_boundaries = nullptr;
-    
-    if (use_variable_width) {
-        VariableWidthHistogram(
-            d_col_add_projected, d_selected_examples, d_global_labels_data,
-            d_min_vals, d_max_vals,
-            // &d_prefix_0, 
-            &d_prefix_1, &d_prefix_2, &d_bin_boundaries,
-            num_rows, num_bins, num_proj);
-            
-        VariableWidthSplit(
-            // d_prefix_0,
-            d_prefix_1, d_prefix_2,
-            d_min_vals, d_bin_boundaries,
-            num_proj, num_bins, num_rows,
-            best_proj, best_bin_out, best_gain_out, best_threshold_out,
-            num_pos_examples_out, nullptr, false, comp_method);
-    } else {
-        EqualWidthHistogram(
-            d_col_add_projected, d_selected_examples, d_global_labels_data,
-            d_min_vals, d_max_vals, d_bin_widths,
-            // &d_prefix_0,
-            &d_prefix_1, &d_prefix_2,
-            num_rows, num_bins, num_proj);
-            
-        EqualWidthSplit(
-            // d_prefix_0,
-            d_prefix_1, d_prefix_2,
-            d_min_vals, d_bin_widths,
-            num_proj, num_bins, num_rows,
-            best_proj, best_bin_out, best_gain_out, best_threshold_out,
-            num_pos_examples_out, nullptr, false, comp_method);
-    }
 }
 
 __device__ __forceinline__
