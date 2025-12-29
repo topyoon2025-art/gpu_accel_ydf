@@ -466,7 +466,7 @@ int main(int argc, char** argv) {
     printf("  Total time: %f ms\n", 
     std::chrono::duration<double, std::milli>(end_exact - start_exact).count());
 
-    printf("Equal-Width Histogram:\n");
+    printf("\nEqual-Width Histogram:\n");
     printf("  Best projection: %d\n", best_proj_eq);
     printf("  Best bin: %d\n", best_bin_eq);
     printf("  Best gain: %f\n", best_gain_eq);
