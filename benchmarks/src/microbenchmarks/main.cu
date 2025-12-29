@@ -304,7 +304,7 @@ int main(int argc, char** argv) {
                         //   &d_prefix_0_var,
                           &d_prefix_1_var_binary_search, &d_prefix_2_var_binary_search,
                           &d_bin_boundaries_var_binary_search,
-                          num_rows, num_bins, num_proj, VBIN_LINEAR);
+                          num_rows, num_bins, num_proj, VBIN_BINARY);
     
     int best_proj_var_binary_search, best_bin_var_binary_search, num_pos_examples_var_binary_search;
     float best_gain_var_binary_search, best_threshold_var_binary_search;
@@ -396,7 +396,7 @@ int main(int argc, char** argv) {
                         //   &d_prefix_0_var,
                           &d_prefix_1_var_2_pass, &d_prefix_2_var_2_pass,
                           &d_bin_boundaries_var_2_pass,
-                          num_rows, num_bins, num_proj, VBIN_LINEAR);
+                          num_rows, num_bins, num_proj, VBIN_2_PASS);
     
     int best_proj_var_2_pass, best_bin_var_2_pass, num_pos_examples_var_2_pass;
     float best_gain_var_2_pass, best_threshold_var_2_pass;
