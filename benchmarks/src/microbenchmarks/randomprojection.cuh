@@ -32,6 +32,11 @@
 #include <cub/device/device_segmented_reduce.cuh>
 #include <thrust/sequence.h>
 
+// Choice of Random Histogram bin assignment
+// Binary - Binary search of sorted bins
+// Linear - linear scan of sorted Bins
+// 2-Pass - Coarse -> Fine pass of bins
+enum VarBinAssignMethod { VBIN_BINARY = 0, VBIN_LINEAR = 1, VBIN_2_PASS = 2 };
 
 
 #define CUDA_CHECK(call)                                                      \
@@ -666,6 +671,21 @@ __device__ int binary_search_upper_bound(const float* boundaries, int num_bounda
     return left;
 }
 
+// Just scan all bins. More GPU friendly, even though O(n) instead of O(log n)
+__device__ __forceinline__
+int linear_search_upper_bound(const float* boundaries, int num_bins, float val) {
+    // boundaries length is num_bins+1
+    int bin = num_bins - 1;
+    #pragma unroll 1
+    for (int b = 0; b < num_bins; ++b) {
+        if (val < boundaries[b + 1]) {
+            bin = b;
+            break;
+        }
+    }
+    return bin;
+}
+
 // Add this function to generate random bin boundaries
 std::vector<float> generateRandomBinBoundaries(int num_bins, int num_proj, 
                                                 float* d_min_vals, float* d_max_vals) {
@@ -713,58 +733,58 @@ std::vector<float> generateRandomBinBoundaries(int num_bins, int num_proj,
 }
 
 
+template<int METHOD>
 __global__ void BuildHistogramRandomWidthKernel(
-    const float* __restrict__ d_attributes,
+    const float*  __restrict__ d_attributes,
     const unsigned int* __restrict__ d_row_indices,
     const unsigned int* __restrict__ d_labels,
-    // int* d_hist_class0,
     int* d_hist_class1,
     int* d_hist_class2,
-    const float* d_bin_boundaries,  // array of size num_bins + 1
+    const float* d_bin_boundaries,
     const int num_rows,
     const int num_proj,
-    const int num_bins
-)
+    const int num_bins)
 {
     extern __shared__ int shared_mem[];
+
     int proj_id = blockIdx.y;
     if (proj_id >= num_proj) return;
-    
-    // Initialize shared memory histograms
+
+    // zero shared memory
     for (int i = threadIdx.x; i < 3 * num_bins; i += blockDim.x)
         shared_mem[i] = 0;
     __syncthreads();
-    
-    // Each projection has its own set of bin boundaries
+
     const float* proj_boundaries = d_bin_boundaries + proj_id * (num_bins + 1);
-    
-    const std::size_t col_offset = std::size_t(proj_id) * num_rows;
-    const int stride = blockDim.x * gridDim.x;
-    const int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    
+    std::size_t col_offset = std::size_t(proj_id) * num_rows;
+    int stride = blockDim.x * gridDim.x;
+    int tid    = threadIdx.x + blockIdx.x * blockDim.x;
+
     for (int i = tid; i < num_rows; i += stride) {
-        float val = d_attributes[col_offset + i];
-        unsigned int label = d_labels[d_row_indices[i]];
-        
-        // Binary search to find bin
-        int bin = binary_search_upper_bound(proj_boundaries, num_bins + 1, val);
-        bin = min(bin, num_bins - 1);  // Clamp to valid range
-        
-        // Update histogram
-        if (label == 1) {
-            atomicAdd(&shared_mem[num_bins + bin], 1);
-        } else if (label == 2) {
-            atomicAdd(&shared_mem[2 * num_bins + bin], 1);
-        } else {
-            atomicAdd(&shared_mem[bin], 1);
+        float val        = d_attributes[col_offset + i];
+        unsigned label   = d_labels[d_row_indices[i]];
+
+        int bin;
+        if (METHOD == VBIN_BINARY) {
+            int ub = binary_search_upper_bound(proj_boundaries, num_bins + 1, val);
+            bin    = min(ub, num_bins - 1);
+        } else if (METHOD == VBIN_LINEAR) {
+            bin = linear_search_upper_bound(proj_boundaries, num_bins, val);
+        } else { // VBIN_MODE3 or fallback
+            bin = -99; // TODO implement 2-pass coarse-fine method
         }
+
+        if (label == 1)
+            atomicAdd(&shared_mem[num_bins + bin], 1);
+        else if (label == 2)
+            atomicAdd(&shared_mem[2 * num_bins + bin], 1);
+        else
+            atomicAdd(&shared_mem[bin], 1);
     }
     __syncthreads();
-    
-    // Write results to global memory
+
     int offset = proj_id * num_bins;
     for (int i = threadIdx.x; i < num_bins; i += blockDim.x) {
-        // atomicAdd(&d_hist_class0[offset + i], shared_mem[i]);
         atomicAdd(&d_hist_class1[offset + i], shared_mem[num_bins + i]);
         atomicAdd(&d_hist_class2[offset + i], shared_mem[2 * num_bins + i]);
     }
@@ -884,11 +904,16 @@ void VariableWidthHistogram(const float* __restrict__ d_col_add_projected,
     dim3 grid(blocks_per_grid, num_proj);
     int sharedMemSize = 3 * num_bins * sizeof(int);
     
-    BuildHistogramRandomWidthKernel<<<grid, threads_per_block, sharedMemSize>>>(
-        d_col_add_projected, d_selected_examples, d_global_labels_data,
-        // d_hist_class0,
-        d_hist_class1, d_hist_class2,
-        d_bin_boundaries, num_rows, num_proj, num_bins);
+    BuildHistogramRandomWidthKernel<VBIN_LINEAR><<<grid, threads_per_block, sharedMemSize>>>(
+        d_col_add_projected,
+        d_selected_examples,
+        d_global_labels_data,
+        d_hist_class1,
+        d_hist_class2,
+        d_bin_boundaries,
+        num_rows,
+        num_proj,
+        num_bins);
     
     CUDA_CHECK(cudaPeekAtLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
