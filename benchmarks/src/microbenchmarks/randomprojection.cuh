@@ -667,6 +667,62 @@ int linear_search_upper_bound(const float* boundaries, int num_bins, float val) 
     return bin;
 }
 
+__device__ __forceinline__
+int two_pass_upper_bound_bin(const float* boundaries, int num_bins, float val) {
+    // boundaries length is num_bins+1: boundaries[0] = min, boundaries[num_bins] = max
+    // thresholds t_j correspond to boundaries[j+1], for j in [0..num_bins-1]
+
+    // Choose coarse groups based on num_bins (mirrors CPU logic: 16 or 8 groups)
+    int G;
+    if (num_bins >= 128)      G = 16;
+    else if (num_bins >= 64)  G = 8;
+    else if (num_bins >= 16)  G = 4;
+    else                      G = 2;
+
+    // Group size (ceil division)
+    int group_size = (num_bins + G - 1) / G;
+
+    // Coarse pass: K = number of coarse thresholds <= val
+    // Coarse thresholds are the last threshold in each group:
+    // coarse[k] = boundaries[min((k+1)*group_size, num_bins)]  (note +1 already applied)
+    int K = 0;
+    for (int k = 0; k < G; ++k) {
+        int thr_idx_end = min((k + 1) * group_size, num_bins) - 1;  // thresholds index [0..num_bins-1]
+        float coarse_thr = boundaries[thr_idx_end + 1];              // boundaries index [1..num_bins]
+        if (val >= coarse_thr) {
+            ++K;
+        } else {
+            // thresholds are sorted; once one fails, subsequent will fail
+            break;
+        }
+    }
+
+    // If val >= last threshold, map to last bin
+    if (K >= G) {
+        return num_bins - 1;
+    }
+
+    // Fine pass within selected group K
+    int start_thr = K * group_size;                     // first threshold index in group
+    int end_thr   = min(start_thr + group_size, num_bins); // one-past-last threshold index in group
+
+    int cnt = 0; // number of thresholds in group <= val
+    for (int j = start_thr; j < end_thr; ++j) {
+        float thr_j = boundaries[j + 1];               // right boundary for bin j
+        if (val >= thr_j) {
+            ++cnt;
+        } else {
+            break; // thresholds sorted; stop early
+        }
+    }
+
+    // Bin index is (start_thr + cnt - 1); clamp to [0, num_bins-1]
+    int bin = start_thr + cnt - 1;
+    if (bin < 0) bin = 0;
+    if (bin >= num_bins) bin = num_bins - 1;
+    return bin;
+}
+
 // Add this function to generate random bin boundaries
 std::vector<float> generateRandomBinBoundaries(int num_bins, int num_proj, 
                                                 float* d_min_vals, float* d_max_vals) {
@@ -751,6 +807,8 @@ __global__ void BuildHistogramRandomWidthKernel(
             bin    = min(ub, num_bins - 1);
         } else if (METHOD == VBIN_LINEAR) {
             bin = linear_search_upper_bound(proj_boundaries, num_bins, val);
+        } else if (METHOD == VBIN_2_PASS) {
+            bin = two_pass_upper_bound_bin(proj_boundaries, num_bins, val);
         } else { // VBIN_MODE3 or fallback
             bin = -99; // TODO implement 2-pass coarse-fine method
         }
@@ -797,13 +855,15 @@ inline void BuildHistogramRandomWidthKernelDispatch(
                 d_bin_boundaries, num_rows, num_proj, num_bins);
             break;
         case VBIN_2_PASS:
-        default:
-            // Fallback to linear until 2-pass is implemented
-            BuildHistogramRandomWidthKernel<VBIN_LINEAR><<<grid, threads_per_block, sharedMemSize>>>(
+            BuildHistogramRandomWidthKernel<VBIN_2_PASS><<<grid, threads_per_block, sharedMemSize>>>(
                 d_attributes, d_row_indices, d_labels,
                 d_hist_class1, d_hist_class2,
                 d_bin_boundaries, num_rows, num_proj, num_bins);
             break;
+        default:
+            // Fallback to linear until 2-pass is implemented
+            std::cout << "\nNo Variable Width method selected\n";
+            return;
     }
 }
 
