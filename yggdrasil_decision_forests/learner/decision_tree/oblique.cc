@@ -266,7 +266,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   else {
     use_GPU = 1; //Use GPU for large nodes
   }
-  use_GPU = 0;
+  use_GPU = 1;
   
     std::vector<std::vector<int>> projection_col_idx;//Stores column indices per projection for GPU function
     std::vector<std::vector<float>> projection_weights;//Stores weights per column per projection for GPU function
