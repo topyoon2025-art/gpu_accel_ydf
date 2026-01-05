@@ -1,0 +1,106 @@
+// If num_cols is large, use global memory instead of shared memory for base_indices.
+// Each thread performs its own shuffle.
+// You can store the output total_col_indices on the device, then copy back to host as needed.
+// If this needs to run repeatedly, set up curandState once per thread for reuse.
+
+#include <cuda_runtime.h>
+#include <vector>
+// #include "yggdrasil_decision_forests/dataset/vertical_dataset.h"
+
+void warmupfunction();
+
+// void LoadDataGPU(
+//                 yggdrasil_decision_forests::dataset::VerticalDataset* dataset,
+//                 float* global_flat_data,
+//                 unsigned int* global_labels_data,
+//                 const int num_rows,
+//                 const int num_cols
+//                 );
+
+void ApplyProjectionColumnADD (const float* d_flat_data,
+                                const unsigned int* d_selected_examples,//selected examples indices
+                                float* d_col_add_projected,
+                                float** d_min_vals_out,
+                                float** d_max_vals_out,
+                                float** d_bin_widths_out,
+                                std::vector<std::vector<int>>& projection_col_idx,
+                                std::vector<std::vector<float>>& projection_weights,
+                                const int num_rows,  //num_rows
+                                const int num_proj, //num_proj
+                                const int train_dataset,
+                                double* elapsed_ms,
+                                const int split_method,
+                                const bool verbose
+                              );
+
+void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attributes
+const unsigned int* __restrict__ selected_examples, //selected examples
+const unsigned int* __restrict__ d_global_labels_data,
+float* d_min_vals,
+float* d_max_vals,
+float* d_bin_widths,
+int** h_hist0,
+int** h_hist1,
+int** h_hist2,
+const int num_rows, //selected_examples.size()
+const int num_bins,
+const int num_proj
+);
+
+void RandomHistogram (const float* __restrict__ d_col_add_projected, //attributes
+const unsigned int* __restrict__ selected_examples, //selected examples
+const unsigned int* __restrict__ d_global_labels_data,
+float* d_min_vals,
+float* d_max_vals,
+float* d_bin_widths,
+int** h_hist0,
+int** h_hist1,
+int** h_hist2,
+float** d_candidate_splits,
+const int num_rows, //selected_examples.size()
+const int num_bins,
+const int num_proj,
+std::mt19937& random
+);
+                    
+void HistogramSplit (const int* d_hist_class0,
+                    const int* d_hist_class1,
+                    const int* d_hist_class2,
+                    const float* d_candidate_splits,
+                    const float* d_min_vals,
+                    const float* d_bin_widths,
+                    const int num_proj,
+                    const int num_bins,
+                    const int num_rows,
+                    int* best_proj,
+                    int* best_bin_out,
+                    float* best_gain_out,
+                    float* best_threshold_out,
+                    int* num_pos_examples_out,
+                    double* elapsed_ms,
+                    bool verbose,
+                    const int comp_method,
+                    const int split_method
+                    );
+
+void ThrustSortIndicesOnly(float* d_proj_values, 
+                          unsigned int* d_row_ids,
+                          unsigned int* d_selected_examples, 
+                          int num_rows, 
+                          int num_proj);
+
+void ExactSplit(
+    unsigned int* d_sorted_indices,  // [num_proj * num_rows]
+    const unsigned int* d_labels,          // [num_proj * num_rows]
+    float* best_gain_out, // [num_proj], initial best gain values
+    int* best_split_out, // [num_proj], initial best split values
+    float* best_threshold_out,
+    int* best_proj,
+    const int num_rows,
+    const int num_proj,
+    float* d_col_add_projected,  // [num_proj * num_rows]
+    double* elapsed_ms,
+    bool verbose,
+    const int comp_method
+    );
+

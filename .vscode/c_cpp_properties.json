@@ -3,7 +3,8 @@
         {
             "name": "linux-icx-x64",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "/usr/local/cuda/include"
             ],
             "compilerPath": "/opt/intel/oneapi/compiler/2025.2/bin/icx",
             "cStandard": "${default}",

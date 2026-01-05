@@ -26,6 +26,9 @@
 #include <functional>
 #include <optional>
 #include <vector>
+#include <cuda_runtime.h>
+#include <curand_kernel.h>
+#include <cublas_v2.h>
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
@@ -34,6 +37,8 @@
 
 namespace yggdrasil_decision_forests {
 namespace dataset {
+  extern float* d_global_flat_data;
+	extern unsigned int* d_global_labels_data;
 
 // Advanced options for dataset loading.
 struct LoadConfig {

@@ -429,7 +429,8 @@ int main(int argc, char** argv) {
   CHECK_OK(model::GetLearner(train_config, &learner, deploy_config));
 
   // 3) Train with timing
-  auto start = std::chrono::high_resolution_clock::now();
+  //auto start = std::chrono::high_resolution_clock::now();
+  auto start = std::chrono::steady_clock::now();
   absl::StatusOr<std::unique_ptr<model::AbstractModel>> model_or;
 
   if (mode == "csv") {
@@ -444,7 +445,9 @@ int main(int argc, char** argv) {
   }
   auto model_ptr = std::move(model_or.value());
 
-  auto end = std::chrono::high_resolution_clock::now();
+  cudaFree(yggdrasil_decision_forests::dataset::d_global_labels_data);
+  cudaFree(yggdrasil_decision_forests::dataset::d_global_flat_data);
+  auto end = std::chrono::steady_clock::now();
   std::chrono::duration<double> dur = end - start;
   std::cout << "Training wall-time: " << dur.count() << "s\n";
 

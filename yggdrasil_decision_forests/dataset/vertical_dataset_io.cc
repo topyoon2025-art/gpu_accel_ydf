@@ -12,8 +12,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+#include <cuda_runtime.h>
+#include <curand_kernel.h>
+#include <cublas_v2.h>
 #include "yggdrasil_decision_forests/dataset/vertical_dataset_io.h"
+#include "yggdrasil_decision_forests/learner/decision_tree/randomprojection.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -46,8 +49,11 @@
 
 namespace yggdrasil_decision_forests {
 namespace dataset {
+    float* d_global_flat_data;
+	  unsigned int* d_global_labels_data;
 namespace {
 
+using clock = std::chrono::steady_clock;
 // Loads the datasets using a single thread. This solution is more memory
 // efficient that per-shard loading as examples are directly integrated into the
 // vertical representation.
@@ -57,6 +63,7 @@ absl::Status LoadVerticalDatasetSingleThread(
     const std::optional<std::vector<int>>& required_columns,
     const LoadConfig& config) {
   // Initialize dataset.
+  auto start_total = clock::now();
   dataset->set_data_spec(data_spec);
   RETURN_IF_ERROR(dataset->CreateColumnsFromDataspec());
   dataset->set_nrow(0);
@@ -92,7 +99,57 @@ absl::Status LoadVerticalDatasetSingleThread(
       << 100 * skipped_examples /
              std::max<size_t>(1, dataset->nrow() + skipped_examples)
       << "%) examples have been skipped.";
+  LOG_EVERY_N_SEC(INFO, 30)
+    << "Dataset_IO test: " << dataset->nrow();
+  auto end_total = clock::now();
+  std::chrono::duration<double> duration_total = end_total - start_total;
+  std::cout << "Data and Label Load Time taken: " << duration_total.count() << " s" << std::endl;
 
+  auto startFlattenData = clock::now();
+
+  const int nrow = dataset->nrow();
+  const int ncol = dataset->ncol() - 1;  // exclude label column
+  std::vector<float> global_flat_data(nrow * ncol);
+
+  // Use raw pointer for faster access
+  float* flat_ptr = global_flat_data.data();
+
+  for (int col = 0; col < ncol; ++col) {
+    const auto* numerical_col =
+        dataset->ColumnWithCast<yggdrasil_decision_forests::dataset::VerticalDataset::NumericalColumn>(col);
+    const std::vector<float>& values = numerical_col->values();
+    std::memcpy(flat_ptr + col * nrow, values.data(), sizeof(float) * nrow); // Use memcpy if layout matches
+  }
+
+  //printf("First data: %f\n", global_flat_data[0]);
+  cudaMalloc(&d_global_flat_data, nrow * ncol * sizeof(float));
+  cudaMemcpy(d_global_flat_data, global_flat_data.data(), nrow * ncol * sizeof(float), cudaMemcpyHostToDevice);
+  auto endFlattenData = clock::now();
+  std::chrono::duration<double> flattenDataDuration = endFlattenData - startFlattenData;
+  std::cout << "GPU Flatten Data and Copy Time taken: " << flattenDataDuration.count() << " s" << std::endl;
+
+  auto startLabel = clock::now();
+  //std::vector<unsigned int> global_labels_data(dataset->nrow());//exclude label column,features only
+  const auto* categorical_col =
+          dataset->ColumnWithCast<yggdrasil_decision_forests::dataset::VerticalDataset::CategoricalColumn>(ncol);//ncol = dataset->ncol() - 1 -> this is an index that is why,label column
+  const auto& dataset_labels = categorical_col->values();
+  std::vector<unsigned int> global_labels_data(dataset_labels.begin(), dataset_labels.end());
+  
+ cudaMalloc(&d_global_labels_data, nrow * sizeof(int));
+ cudaMemcpy(d_global_labels_data, global_labels_data.data(), nrow * sizeof(int), cudaMemcpyHostToDevice);
+
+  auto endLabel = clock::now();
+  std::chrono::duration<double> durationLabel = endLabel - startLabel;
+  std::cout << "GPU Flatten Label and Copy Time taken: " << durationLabel.count() << " s" << std::endl;
+
+  auto warmup_start = clock::now();
+  warmupfunction(); //warm up cuda before timing
+  auto warmup_end = clock::now();
+  std::chrono::duration<double> warmup_duration = warmup_end - warmup_start;
+  std::cout << "CUDA Warmup Time taken at data loading: " << warmup_duration.count() << " s" << std::endl;
+
+  std::cout << "GPU specific Data Prep time: " << flattenDataDuration.count() + durationLabel.count() + warmup_duration.count() << " s" << std::endl;
+  std::cout << "Total Data and Label Prep Time: " << duration_total.count() + flattenDataDuration.count() + durationLabel.count() + warmup_duration.count() << " s" << std::endl;
   return status.status();
 }
 

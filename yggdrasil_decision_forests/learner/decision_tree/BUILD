@@ -1,5 +1,7 @@
 # TODO: Enbable CUDA build in OSS
 # load("@rules_cuda//cuda:defs.bzl", "cuda_library", "requires_cuda")
+load("@rules_cuda//cuda:defs.bzl", "cuda_library")
+load("@rules_cc//cc:defs.bzl",   "cc_library")
 
 load("//yggdrasil_decision_forests/utils:compile.bzl", "all_proto_library", "cc_library_ydf")
 
@@ -10,6 +12,26 @@ package(
 
 # Libraries
 # =========================================================
+cuda_library(
+    name = "randomprojection",
+    srcs = ["randomprojection.cu"],
+    hdrs = ["randomprojection.hpp"],
+    includes = ["."],
+    deps = [
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/status:status",
+        "@com_google_absl//absl/log",
+        "@com_google_absl//absl/types:span",
+        "//yggdrasil_decision_forests/dataset:vertical_dataset",
+    ],
+   copts = [
+        "-std=c++17",
+        "-Xcompiler", "-std=c++17",
+        "-DGOOGLE_PROTOBUF_NO_ARENA=1",
+        "-Wno-deprecated-gpu-targets",
+    ],
+    visibility = ["//visibility:public"],
+)
 
 cc_library_ydf(
     name = "training",
@@ -23,7 +45,15 @@ cc_library_ydf(
         "training.h",
         "vector_sequence.h",
     ],
+    copts = [
+    # CUDA include root
+    "-Iexternal/local_cuda/cuda/include",
+    # CCCL include root so <thrust/...> resolves to cccl/thrust/...
+    "-Iexternal/local_cuda/cuda/include/cccl",
+    ],
+
     deps = [
+        "//yggdrasil_decision_forests/learner/decision_tree:randomprojection", # Random Projection
         ":decision_tree_cc_proto",
         ":label",
         ":preprocessing",
@@ -34,6 +64,7 @@ cc_library_ydf(
         "//yggdrasil_decision_forests/dataset:data_spec_cc_proto",
         "//yggdrasil_decision_forests/dataset:types",
         "//yggdrasil_decision_forests/dataset:vertical_dataset",
+        "//yggdrasil_decision_forests/dataset:vertical_dataset_io",
         "//yggdrasil_decision_forests/learner:abstract_learner_cc_proto",
         "//yggdrasil_decision_forests/learner/distributed_decision_tree:training",
         "//yggdrasil_decision_forests/learner/distributed_decision_tree/dataset_cache:dataset_cache_reader",
@@ -70,6 +101,7 @@ cc_library_ydf(
         ],
     }),
     alwayslink = 1,
+    
 )
 
 cc_library_ydf(
