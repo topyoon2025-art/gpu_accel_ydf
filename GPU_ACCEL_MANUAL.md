@@ -35,6 +35,10 @@ chmod +x /usr/local/bin/bazel
 
 bazel version (to check version to be 6.5.0)
 
+example  
+bazel build \\examples:train_oblique_forests
+
+
 sudo reboot
 
 ## Install gcc and g++ 12 as gcc/g++ 13 not compatible with the latest CUDA Toolkit
@@ -67,6 +71,10 @@ export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
 ## Set symlink for cuda-13.1 to generic path
 sudo ln -sfn /usr/local/cuda-13.1 /usr/local/cuda
+
+## Set up treeple and panda for python file to generate dataset
+python -m pip install treeple  
+pip install pandas  
 
 ## Files changed/modified from https://github.com/ariellubonja/yggdrasil-oblique-forests.git
 		modified:   .bazelrc
