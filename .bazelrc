@@ -9,8 +9,8 @@ build:cuda --host_cxxopt=-I/usr/local/cuda/include
 #build --compiler=gcc
 
 build --cxxopt=-std=c++17
-build --action_env=CC=/usr/bin/gcc-12
-build --action_env=CXX=/usr/bin/g++-12
+build --action_env=CC=/usr/bin/gcc-13
+build --action_env=CXX=/usr/bin/g++-13
 
 
 

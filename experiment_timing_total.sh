@@ -14,7 +14,7 @@ fi
 echo "Using RUNS = $RUNS"
 
 BIN="bazel-bin/examples/train_oblique_forest"
-CSV_DIR="/home/ubuntu/projects/gpu_accel_ydf/yggdrasil-oblique-forests"
+CSV_DIR="/home/ubuntu/projects/dataset"
 
 CSV_FILES=(
   "$CSV_DIR/32x100.csv"
@@ -37,7 +37,7 @@ CSV_FILES=(
 
 SPLIT_TYPES=("Exact" "Random" "Equal Width")
 
-OUTCSV="benchmark_all_total.csv"
+OUTCSV="/home/ubuntu/projects/results/benchmark_all_total.csv"
 
 echo "dataset,split_type,metric,avg_value,runs" > "$OUTCSV"
 
