@@ -80,6 +80,34 @@
   #define PRINT_PROJECTION_MATRICES_FLAG 0
 #endif
 
+#include "absl/time/time.h"
+#include "absl/log/log.h"   // or <glog/logging.h>
+
+/********************************************************************
+ *  Simple per-depth cumulative timer
+ ********************************************************************/
+namespace {
+
+/* One entry per depth.  Resized on demand. */
+static std::vector<absl::Duration> g_depth_time;
+
+/* Ensure the vector is large enough and return the reference
+   to the bucket for the requested depth. */
+inline void AddToDepthBucket(int depth, absl::Duration d) {
+  if (depth >= static_cast<int>(g_depth_time.size())) {
+    g_depth_time.resize(depth + 1, absl::ZeroDuration());
+  }
+  g_depth_time[depth] += d;
+}
+
+void PrintDepthTimes() {
+  for (int d = 0; d < static_cast<int>(g_depth_time.size()); ++d) {
+    LOG(INFO) << "Cumulative time spent at depth " << d << ": "
+              << absl::ToInt64Milliseconds(g_depth_time[d]) << " ms";
+  }
+}
+
+}  // namespace
 
 namespace yggdrasil_decision_forests::model::decision_tree
 {
@@ -5265,10 +5293,12 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         const auto constraints = NodeConstraints::CreateNodeConstraints();
 
         // This is the first call - selected_examples_rb should be full bag
-        return NodeTrain(train_dataset, config, config_link, dt_config,
-                        deployment, splitter_concurrency_setup, weights, 1,
-                        internal_config, constraints, false, dt->mutable_root(),
-                        random, &cache, selected_examples_rb, leaf_examples_rb);
+        absl::Status status =  NodeTrain(train_dataset, config, config_link, dt_config,
+                                deployment, splitter_concurrency_setup, weights, 1,
+                                internal_config, constraints, false, dt->mutable_root(),
+                                random, &cache, selected_examples_rb, leaf_examples_rb);
+        PrintDepthTimes();  
+        return status;
       }
       break;
       case proto::DecisionTreeTrainingConfig::kGrowingStrategyBestFirstGlobal:
@@ -5313,6 +5343,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         sample_cnt()[t][d] += selected_examples.size();
       }
     #endif
+    
+    const absl::Time t_start = absl::Now();
 
     /* #region Exit Conditions */
     if (selected_examples.empty())
@@ -5531,6 +5563,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     if constexpr (PRINT_PROJECTION_MATRICES) {
       std::cout << "\nStarting work on Positive child" << std::endl;
     }
+    AddToDepthBucket(depth, absl::Now() - t_start);
     RETURN_IF_ERROR(
         NodeTrain(train_dataset, config, config_link, dt_config, deployment,
                   splitter_concurrency_setup, weights, depth + 1, internal_config,

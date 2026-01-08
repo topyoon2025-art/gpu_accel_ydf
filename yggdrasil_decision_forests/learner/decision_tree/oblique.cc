@@ -59,6 +59,10 @@
 #include <cccl/thrust/execution_policy.h>
 #include <cccl/thrust/device_ptr.h>
 #include "yggdrasil_decision_forests/learner/decision_tree/randomprojection.hpp"
+#include "absl/flags/flag.h"
+#include "absl/flags/declare.h"
+ABSL_DECLARE_FLAG(int, computation_method);
+ABSL_DECLARE_FLAG(int, GPU_usage);
 
 
 
@@ -73,17 +77,6 @@
 #ifndef SLOW_SAMPLE_PROJECTIONS_FLAG
   #define SLOW_SAMPLE_PROJECTIONS_FLAG 0
 #endif
-
-#define CUDA_CHECK(call)                                                      \
-    do {                                                                      \
-        cudaError_t _status = (call);                                         \
-        if (_status != cudaSuccess) {                                         \
-            std::cerr << "CUDA ERROR: " << cudaGetErrorString(_status)        \
-                      << " (code " << _status << ") "                         \
-                      << "in " << __FILE__ << ':' << __LINE__ << std::endl;   \
-            std::exit(EXIT_FAILURE);                                          \
-        }                                                                     \
-    } while (0)
 
 namespace yggdrasil_decision_forests {
 namespace model {
@@ -266,19 +259,27 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
   else {
     use_GPU = 1; //Use GPU for large nodes
   }
-  use_GPU = 1;
+  use_GPU = absl::GetFlag(FLAGS_GPU_usage);
+  using clock = std::chrono::steady_clock; 
+  using d_milli = std::chrono::duration<double, std::milli>;
+
+  const int comp_method = absl::GetFlag(FLAGS_computation_method); //0-Entropy, 1-Gini
+    // if (comp_method == 0) {
+    //     LOG(INFO) << std::endl << "Using Entropy as comparison method";
+    // } else {
+    //     LOG(INFO) << std::endl << "Using Gini as comparison method";
+    // }
   
     std::vector<std::vector<int>> projection_col_idx;//Stores column indices per projection for GPU function
     std::vector<std::vector<float>> projection_weights;//Stores weights per column per projection for GPU function
     std::vector<Projection> current_projections;
+    std::chrono::duration<double, std::milli> sample_duration;
     if (use_GPU == 1 ) {
       CUDA_CHECK(cudaGetLastError()); // Check for any errors during initialization
       ///////////////////////////////////////////////////////////////////////////////////////
-      using clock = std::chrono::steady_clock; 
-      using d_milli = std::chrono::duration<double, std::milli>;
+      
       ///Get CPU Sample and Apply Projections Loop///////////////////////////////////////
-      // auto startSample = clock::now();
-
+      auto startSample = clock::now();
       for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
           int8_t monotonic = 0;
           SampleProjection(config_link.numerical_features(), dt_config,
@@ -296,9 +297,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
               }        
           }
       } 
-      // auto endSample = clock::now();
-      // std::chrono::duration<double, std::milli> sample_duration = endSample - startSample;
-      // std::cout << "Sample Projection Time taken: " << sample_duration.count() << " ms" << std::endl;
+      auto endSample = clock::now();
+      sample_duration = endSample - startSample;
     }
   //   ///////////////////////////////////////////////////////////////////////////////////////
   
@@ -315,10 +315,14 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       //     if constexpr (ALLOW_EMPTY_PROJECTIONS) {
       //         // Skip empty projections, like Treeple
       //       if (projection_col_idx[proj_idx].empty()) continue;}
-      //       RETURN_IF_ERROR( // ApplyProjection
-      //         projection_evaluator.Evaluate(current_projections[proj_idx], selected_examples, &projection_values)
-      //       );
 
+      //       float min_value, max_value;
+      //       RETURN_IF_ERROR( // ApplyProjection
+      //         projection_evaluator.Evaluate(current_projections[proj_idx], selected_examples, &projection_values, &min_value, &max_value)
+      //       );
+      //       if (proj_idx == 8) {
+      //           std::cout << "Min and Max Values for Projection 8 " << proj_idx << ": " << min_value << ", " << max_value << std::endl;
+      //       }
       //     ASSIGN_OR_RETURN(
       //         const auto split_result,
       //         EvaluateProjection(dt_config, label_stats, dense_example_idxs, selected_weights,
@@ -335,14 +339,11 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
       //         }
       // }
-      
+
       //         LOG(INFO) << "\n"
-      //           << "Best condition selected CPU:\n"
-      //           << best_condition->DebugString();
+      //           << "Best condition selected CPU with same sample projections:\n"
+      //           << best_condition->DebugString();    
 
-      //printf("CPU New Best Projection at proj idx: %d with threshold %f and best gain %f\n", best_proj0, best_threshold, cpu_best_gain);       
-
-        
       
       // auto endCPU = clock::now();
       // d_milli cpu_duration {0.0};
@@ -364,66 +365,58 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   /* #region ----------  MAIN LOOP  ------------------ */
   if (use_GPU == 0 ) {
-  for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
-      int8_t monotonic = 0;
+    for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
+        int8_t monotonic = 0;
 
-      SampleProjection(config_link.numerical_features(), dynamic_dt_config,
-                      train_dataset.data_spec(), config_link, projection_density,
-                      &current_projection, &monotonic, random);
+        SampleProjection(config_link.numerical_features(), dynamic_dt_config,
+                        train_dataset.data_spec(), config_link, projection_density,
+                        &current_projection, &monotonic, random);
 
-      if constexpr (PRINT_PROJECTION_MATRICES) {
-        // store the current projection sparsely
-        SparseProjection& buf = projection_buffer.emplace_back();
-        buf.reserve(current_projection.size());
-        for (const auto& feat : current_projection) {
-          buf.emplace_back(feat.attribute_idx, feat.weight);
+        if constexpr (PRINT_PROJECTION_MATRICES) {
+          // store the current projection sparsely
+          SparseProjection& buf = projection_buffer.emplace_back();
+          buf.reserve(current_projection.size());
+          for (const auto& feat : current_projection) {
+            buf.emplace_back(feat.attribute_idx, feat.weight);
+          }
+        }
+
+        if constexpr (ALLOW_EMPTY_PROJECTIONS) {
+          // Skip empty projections, like Treeple
+          if (current_projection.empty()) continue;
+        }
+
+        float min_value, max_value;
+
+        RETURN_IF_ERROR( // ApplyProjection
+          projection_evaluator.Evaluate(current_projection, selected_examples, &projection_values, &min_value, &max_value)
+        );
+
+        ASSIGN_OR_RETURN(
+            const auto split_result,
+            EvaluateProjection(dynamic_dt_config, label_stats, dense_example_idxs, selected_weights,
+                              selected_labels, projection_values, internal_config,
+                              current_projection.front().attribute_idx,
+                              constraints, monotonic,
+                              best_condition, cache, random// random needed for Histogramming
+                            ));
+
+        if (split_result == SplitSearchResult::kBetterSplitFound) {
+          best_projection = current_projection;
+          best_threshold = best_condition->condition().higher_condition().threshold();
         }
       }
-
-      if constexpr (ALLOW_EMPTY_PROJECTIONS) {
-        // Skip empty projections, like Treeple
-        if (current_projection.empty()) continue;
-      }
-
-      float min_value, max_value;
-
-      RETURN_IF_ERROR( // ApplyProjection
-        projection_evaluator.Evaluate(current_projection, selected_examples, &projection_values, &min_value, &max_value)
-      );
-
-      ASSIGN_OR_RETURN(
-          const auto split_result,
-          EvaluateProjection(dynamic_dt_config, label_stats, dense_example_idxs, selected_weights,
-                            selected_labels, projection_values, internal_config,
-                            current_projection.front().attribute_idx,
-                            constraints, monotonic,
-                            best_condition, cache, random// random needed for Histogramming
-                          ));
-
-      if (split_result == SplitSearchResult::kBetterSplitFound) {
-        best_projection = current_projection;
-        best_threshold = best_condition->condition().higher_condition().threshold();
-      }
-    }
+              // LOG(INFO) << "\n"
+              //     << "Best condition selected CPU:\n"
+              //     << best_condition->DebugString();
   }
+
+      
   /* #endregion */
 
   /* #region update Best Threshold & Projection */
-
-
     //////////////////////////////////////////////////////////////////////////////////////////
   if (use_GPU == 1) {
-    //auto startTotal = clock::now();
-    const int comp_method = 0; //0-Entropy, 1-Gini
-    // if (comp_method == 0) {
-    //     LOG(INFO) << std::endl << "Using Entropy as comparison method";
-    // } else {
-    //     LOG(INFO) << std::endl << "Using Gini as comparison method";
-    // }
-
-    //////////////////////////////////////Node Data Prep - Malloc and Memcpy///////////////////////
-    // auto startNode = std::chrono::high_resolution_clock::now();
-
     //// Important variables///////////////////
     UnsignedExampleIdx* d_selected_examples;
     float* d_col_add_projected = nullptr;
@@ -436,23 +429,18 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     CUDA_CHECK(cudaMalloc(&d_selected_examples, selected_examples.size() * sizeof(unsigned int)));
     CUDA_CHECK(cudaMemcpy(d_selected_examples, selected_examples.data(), selected_examples.size() * sizeof(unsigned int), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMalloc(&d_col_add_projected, selected_examples.size() * projection_col_idx.size() * sizeof(float))); //num_rows * num_proj
-    
-    // auto endNode = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double, std::milli> node_duration = endNode - startNode;
-    // printf("GPU Per Node Memcpy / Malloc Time taken: %f ms\n", node_duration.count());
     //////////////////////////////////////////////////////////////////////////////////////////////////
 
 
     ///////////////////////////////GPU Apply Projections Loop///////////////////////////////////////
     
-    // auto startApply = std::chrono::high_resolution_clock::now();
+    auto startApply = clock::now();
     bool verbose = false; 
     double elapsed_apply_time = 0.0;
     float* d_min_vals = nullptr;
     float* d_max_vals = nullptr;
     float* d_bin_widths = nullptr;
     int split_method = dt_config.numerical_split().type(); //0-Exact, 1-Equal Width Histogram
-    //std::cout << "GPU Using Split Method: " << split_method <<  << " Examples Size " << selected_examples.nrow() << std::endl; //Equal Width = 1, Exact = 0
     ApplyProjectionColumnADD(yggdrasil_decision_forests::dataset::d_global_flat_data,
                             d_selected_examples,//selected examples indices
                             d_col_add_projected,
@@ -467,44 +455,38 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                             &elapsed_apply_time,
                             split_method, 
                             verbose);
-    // auto endApplyProj = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double, std::milli> applyproj_duration = endApplyProj - startApply;
-    // printf("GPU Apply Projection Total Time taken: %f ms\n", applyproj_duration.count());
+    auto endApplyProj = clock::now();
+    std::chrono::duration<double, std::milli> applyproj_duration = endApplyProj - startApply;
+    
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
+    auto startTotal = clock::now();
     if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH || 
         dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_RANDOM) {
 
+        auto startHistogram = clock::now(); 
+
+        std::vector<float> h_min_vals(num_proj);
+        std::vector<float> h_max_vals(num_proj);
+        CUDA_CHECK(cudaMemcpy(h_min_vals.data(), d_min_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpy(h_max_vals.data(), d_max_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost));  
+
+        int* d_prefix_0 = nullptr;
+        int* d_prefix_1 = nullptr;
+        int* d_prefix_2 = nullptr;
+        float* d_candidate_splits = nullptr;
+        const int num_bins = dt_config.numerical_split().num_candidates(); // YDF convention
+        const int ydf_bins = num_bins + 1;// YDF convention
         
-          int* d_prefix_0 = nullptr;
-          int* d_prefix_1 = nullptr;
-          int* d_prefix_2 = nullptr;
-          float* d_candidate_splits = nullptr;
-          const int num_bins = dt_config.numerical_split().num_candidates(); // YDF convention
-          const int ydf_bins = num_bins + 1;// YDF convention
-          
-          // std::vector<float> candidate_splits(num_bins);
-          // std::uniform_real_distribution<float> threshold_distribution(0.0f, 1.0f);
-          // //utils::RandomEngine* random;
-          // for (auto &candidate_split : candidate_splits)
-          //       {
-          //         candidate_split = threshold_distribution(*random);
-          //       }
-
-          //       std::sort(candidate_splits.begin(), candidate_splits.end());
-          //       std::cout << "Generated random histogram bins in training in oblique: "; 
-          //       for (const auto &bin : candidate_splits) { std::cout << bin << ' '; }
-          //       std::cout << std::endl; 
-
-
+        std::chrono::duration<double, std::milli> random_hist_duration;
         if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_RANDOM) {
+          auto startRandomHistogram = clock::now();
           auto &rng = *random;                 // reference to the engine
           RandomHistogram(d_col_add_projected, //attributes
                           d_selected_examples, //selected examples
                           yggdrasil_decision_forests::dataset::d_global_labels_data,
-                          d_min_vals,
-                          d_max_vals,
-                          d_bin_widths,
+                          h_min_vals.data(),
+                          h_max_vals.data(),
                           &d_prefix_0,
                           &d_prefix_1,
                           &d_prefix_2,
@@ -514,116 +496,133 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                           num_proj,
                           rng
                           );
-          }
-
+          auto endRandomHistogram = clock::now();
+          random_hist_duration = endRandomHistogram - startRandomHistogram;
+        }
 
     /////////////////////Equal Width Histogram Split Evaluation on GPU//////////////////////////
-
-      if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
-            // auto startEval = std::chrono::high_resolution_clock::now();
-            // auto startHist = std::chrono::high_resolution_clock::now();
-
-            EqualWidthHistogram(d_col_add_projected, 
-                                d_selected_examples,
-                                yggdrasil_decision_forests::dataset::d_global_labels_data,
-                                d_min_vals, 
-                                d_max_vals,
-                                d_bin_widths,
-                                &d_prefix_0,
-                                &d_prefix_1,
-                                &d_prefix_2,
-                                num_rows,
-                                ydf_bins,
-                                num_proj
-                                );
+        std::chrono::duration<double, std::milli> equal_width_hist_duration;
+        if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
+          auto startEqualWidthHistogram = clock::now();
+          EqualWidthHistogram(d_col_add_projected, 
+                              d_selected_examples,
+                              yggdrasil_decision_forests::dataset::d_global_labels_data,
+                              d_min_vals,
+                              d_max_vals,
+                              h_min_vals.data(), 
+                              h_max_vals.data(),
+                              d_bin_widths,
+                              &d_prefix_0,
+                              &d_prefix_1,
+                              &d_prefix_2,
+                              num_rows,
+                              ydf_bins,
+                              num_proj
+                              );
+          auto endEqualWidthHistogram = clock::now();
+          equal_width_hist_duration = endEqualWidthHistogram - startEqualWidthHistogram;
         }
-        // auto endHist = std::chrono::high_resolution_clock::now();
-        // std::chrono::duration<double, std::milli> hist_duration = endHist - startHist;
-        // printf("GPU Equal Width Histogram Building Time taken: %f ms\n", hist_duration.count());
 
-      /////////////////////////Equal Width Split Evaluation from Histograms///////////////////////////
+      
+      /////////////////////////Histogram Split Evaluation///////////////////////////
 
-      // auto startEqualWidth = std::chrono::high_resolution_clock::now();
-      int h_best_bin_out = -1;  
-      float h_best_threshold_out = NAN;
-      float h_best_gain_out = -INFINITY;
-      int h_num_pos_examples_out = -1;
-      int best_proj = -1;
-      double elapsed_ms = 0.0;
-      bool verbose = false;
-      HistogramSplit(d_prefix_2, //From YDF convention, Label 2 == 0
-                      d_prefix_1, //From YDF convention, Label 1 == 1
-                      d_prefix_0, //From YDF convention, Label 0 == 2
-                      d_candidate_splits,
-                      d_min_vals,
-                      d_bin_widths,
-                      num_proj,
-                      ydf_bins,
-                      num_rows,
-                      &best_proj,
-                      &h_best_bin_out,
-                      &h_best_gain_out,
-                      &h_best_threshold_out,
-                      &h_num_pos_examples_out,
-                      &elapsed_ms,
-                      verbose,
-                      comp_method,  // Evaluate splits from histograms
-                      split_method);
-      // if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) { 
-      //   printf("Best Projection Equal Width: %d\n", best_proj);
-      //   printf("GPU Equal Width Best Projection: %d\n", best_proj);
-      //   printf("GPU Equal Width Best Threshold: %f\n", h_best_threshold_out);
-      //   printf("GPU Equal Width Best Bin: %d\n", h_best_bin_out);
-      //   printf("GPU Equal Width Best Gain: %f\n", h_best_gain_out);
-      //   printf("GPU Equal Width Num Pos Examples: %d\n", h_num_pos_examples_out);
-      // }
-      // if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_RANDOM) { 
-      //   printf("Best Projection Random: %d\n", best_proj);
-      //   printf("GPU Random Best Projection: %d\n", best_proj);
-      //   printf("GPU Random Best Threshold: %f\n", h_best_threshold_out);
-      //   printf("GPU Random Best Bin: %d\n", h_best_bin_out);
-      //   printf("GPU Random Best Gain: %f\n", h_best_gain_out);
-      //   printf("GPU Random Num Pos Examples: %d\n", h_num_pos_examples_out);
-      // }
-      if (h_best_gain_out > 0.0f) {  
-          best_projection = current_projections[best_proj];
-          best_threshold = h_best_threshold_out;
-          best_condition->mutable_condition()->mutable_higher_condition()->set_threshold(h_best_threshold_out);
-          best_condition->set_attribute(best_projection.front().attribute_idx);
-          best_condition->set_num_training_examples_with_weight(selected_examples.size());
-          best_condition->set_num_training_examples_without_weight(selected_examples.size());
-          best_condition->set_num_pos_training_examples_with_weight(h_num_pos_examples_out);
-          best_condition->set_num_pos_training_examples_without_weight(h_num_pos_examples_out);
-          best_condition->set_split_score(h_best_gain_out);
-          best_condition->set_na_value(true); //missing go to the right child
+        auto startSplitEval = clock::now();
+        int h_best_bin_out = -1;  
+        float h_best_threshold_out = NAN;
+        float h_best_gain_out = -INFINITY;
+        int h_num_pos_examples_out = -1;
+        int best_proj = -1;
+        double elapsed_ms = 0.0;
+        bool verbose = false;
+        HistogramSplit(d_prefix_2, //From YDF convention, Label 2 == 0
+                  d_prefix_1, //From YDF convention, Label 1 == 1
+                  d_prefix_0, //From YDF convention, Label 0 == 2
+                  d_candidate_splits,
+                  h_min_vals.data(),
+                  d_bin_widths,
+                  num_proj,
+                  ydf_bins,
+                  num_rows,
+                  &best_proj,
+                  &h_best_bin_out,
+                  &h_best_gain_out,
+                  &h_best_threshold_out,
+                  &h_num_pos_examples_out,
+                  &elapsed_ms,
+                  verbose,
+                  comp_method,  // Evaluate splits from histograms
+                  split_method);
+
+
+        cudaEvent_t e0,e1;  cudaEventCreate(&e0); cudaEventCreate(&e1);
+        cudaEventRecord(e0);
+        cudaDeviceSynchronize();                       // explicit wait
+        cudaEventRecord(e1); cudaEventSynchronize(e1);
+        float sync_ms; cudaEventElapsedTime(&sync_ms, e0, e1);
+        printf("Explicit sync   : %.3f ms\n", sync_ms);
+
+        cudaEventRecord(e0);
+        
+        CUDA_CHECK(cudaFree(d_max_vals));    
+        CUDA_CHECK(cudaFree(d_min_vals));
+        CUDA_CHECK(cudaFree(d_prefix_0));
+        CUDA_CHECK(cudaFree(d_prefix_1));
+        CUDA_CHECK(cudaFree(d_prefix_2));
+
+        cudaEventRecord(e1); cudaEventSynchronize(e1);
+        float free_ms; cudaEventElapsedTime(&free_ms, e0, e1);
+        printf("Pure cudaFree   : %.3f ms\n", free_ms);
+        auto endSplitEval = clock::now();
+        std::chrono::duration<double, std::milli> split_eval_duration = endSplitEval - startSplitEval;
+        
+        if (h_best_gain_out > 0.0f) {  
+            best_projection = current_projections[best_proj];
+            best_threshold = h_best_threshold_out;
+            best_condition->mutable_condition()->mutable_higher_condition()->set_threshold(h_best_threshold_out);
+            best_condition->set_attribute(best_projection.front().attribute_idx);
+            best_condition->set_num_training_examples_with_weight(selected_examples.size());
+            best_condition->set_num_training_examples_without_weight(selected_examples.size());
+            best_condition->set_num_pos_training_examples_with_weight(h_num_pos_examples_out);
+            best_condition->set_num_pos_training_examples_without_weight(h_num_pos_examples_out);
+            best_condition->set_split_score(h_best_gain_out);
+            best_condition->set_na_value(true); //missing go to the right child
+        }
+        else {
+            best_condition->Clear();
+        }
+        // LOG(INFO) << "\n"
+        // << "Best condition selected GPU:\n"
+        // << best_condition->DebugString();
+      auto endHistogram = clock::now();
+      std::chrono::duration<double, std::milli> histogram_duration = endHistogram - startHistogram;
+
+      std::cout << "Sample Projection Time taken: " << sample_duration.count() << " ms" << std::endl;
+      std::cout << "GPU Apply Projection Total Time taken: " << applyproj_duration.count() << " ms\n";
+      if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
+        std::cout << "GPU Equal Width Histogram Build Time taken: " << equal_width_hist_duration.count() << " ms\n";
       }
       else {
-          //std::cout<<"No Valid Split Found Equal Width"<<std::endl;
-          best_condition->Clear();
+        std::cout << "GPU Random Histogram Build Time taken: " << random_hist_duration.count() << " ms\n";
       }
-      // auto endEqualWidth = std::chrono::high_resolution_clock::now();
-      // std::chrono::duration<double, std::milli> equal_width_duration = endEqualWidth - startEqualWidth;
-      // printf("GPU Equal Width Split Time taken: %f ms\n", equal_width_duration.count());
-
-      // auto endEval = std::chrono::high_resolution_clock::now();
-      // std::chrono::duration<double, std::milli> eval_duration = endEval - startEval;
-      // printf("GPU Equal Width Histogram + Split Time taken: %f ms\n", eval_duration.count());
+      std::cout << "GPU Histogram Split Time taken: " << split_eval_duration.count() << " ms\n";
+      std::cout << "GPU Histogram Build + Split Total Time taken: " << histogram_duration.count() << " ms\n";
     }
+ 
     
     /////////////////////////////////Exact Split Evaluation on GPU//////////////////////////////////////////
     if (dt_config.numerical_split().type() == proto::NumericalSplit::EXACT) {
-        // auto startEval = std::chrono::high_resolution_clock::now();
-        // auto startSort = std::chrono::high_resolution_clock::now();
+
+        auto startExact = clock::now();
+
         //Sort projected values and row indices through d_col_add_projected and d_selected_examples
+        auto startSort = clock::now();
         unsigned int* d_row_ids = nullptr;
         CUDA_CHECK(cudaMalloc(&d_row_ids, num_rows * num_proj * sizeof(unsigned int)));
         ThrustSortIndicesOnly(d_col_add_projected, d_row_ids, d_selected_examples, selected_examples.size(), projection_col_idx.size()); 
-        //Sort projected values and row indices through d_col_add_projected and d_selected_examples
-        // auto endSort = std::chrono::high_resolution_clock::now();
-        // std::chrono::duration<double, std::milli> sort_duration = endSort - startSort;
-        // printf("GPU Exact Sort Total Time taken: %f ms\n", sort_duration.count());
-
-        // auto startSplit = std::chrono::high_resolution_clock::now();
+        auto endSort = clock::now();
+        std::chrono::duration<double, std::milli> sort_duration = endSort - startSort;
+        
+        auto startSplit = clock::now();
         int h_best_split_out = -1;
         float h_best_threshold_out = NAN;
         float h_best_gain_out = -INFINITY;
@@ -643,18 +642,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                     verbose,
                     comp_method
                     );
-        // auto endSplit = std::chrono::high_resolution_clock::now();
-        // std::chrono::duration<double, std::milli> split_duration = endSplit - startSplit;
-        // printf("GPU Exact Split Total Time taken: %f ms\n", split_duration.count());
-
-        // if (h_best_split_out == -1) {
-          // printf("Best Split Exact at Node Size: %d\n", h_best_split_out);
-          // printf("Best Projection Exact : %d\n", best_proj);
-          // printf("GPU Exact Best Projection: %d\n", best_proj);
-          // printf("GPU Exact Best Threshold: %f\n", h_best_threshold_out);
-          // printf("GPU Exact Best Split: %d\n", h_best_split_out);
-          // printf("GPU Exact Best Gain: %f\n", h_best_gain_out);
-        // }
+        auto endSplit = clock::now();
+        std::chrono::duration<double, std::milli> split_duration = endSplit - startSplit;
         
         if (h_best_gain_out > 0.0f) {               
             best_projection = current_projections[best_proj];
@@ -667,10 +656,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
             best_condition->set_num_pos_training_examples_without_weight(selected_examples.size() - h_best_split_out);
             best_condition->set_split_score(h_best_gain_out);
             best_condition->set_na_value(false); //missing go to the right child
-            //std::cout<<"Split Score Exact GPU: "<<h_best_gain_out<<std::endl;
         }
         else {
-            //std::cout<<"No Valid Split Found Exact"<<std::endl;
             best_condition->Clear();
         }
 
@@ -678,36 +665,18 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         //       << "Best condition selected GPU Exact:\n"
         //       << best_condition->DebugString();
 
-        // auto endEval = std::chrono::high_resolution_clock::now();
-        // std::chrono::duration<double, std::milli> eval_duration = endEval - startEval;
-        // printf("GPU Eval Projection Total Time taken Exact: %f ms\n", eval_duration.count());
+      auto endExact = clock::now();
+      std::chrono::duration<double, std::milli> exact_duration = endExact - startExact;
 
+      std::cout << "GPU Exact Sort Time taken: " << sort_duration.count() << " ms\n";
+      std::cout << "GPU Exact Split Time taken: " << split_duration.count() << " ms\n";
+      std::cout << "GPU Exact Sort + Split Total Time taken: " << exact_duration.count() << " ms\n";
     }
-///////////////////////////////////////////////////////////////////////////////////////////////////////////   
-  
-// ///////////////////////////////////////////////////////////////////////////////////////////////////////////
-// auto endTotal = clock::now();
-// d_milli total_duration {0.0};
-// total_duration = endTotal - startTotal;
-// std::cout << "Num Examples: " << selected_examples.size() << std::endl;
-// std::cout << "GPU Total Time taken: " << total_duration.count() + sample_duration.count() << " ms" << std::endl;
-//std::cout << "CPU Time / GPU Time Ratio: " << (cpu_duration.count() + sample_duration.count()) / (total_duration.count() + sample_duration.count()) << std::endl;
-
+    auto endTotal = clock::now();
+    std::chrono::duration<double, std::milli> total_duration = endTotal - startTotal;
+    std::cout << "GPU Total Time taken: " << total_duration.count() << " ms\n";
   }
-    //////////////////////////////////////Free Malloced Memory/////////////////////////////////////////
-
-
-    //////////////////////////////////////////////////////////////////////////////////////////////////
-
-//std::cout << std::endl;
-// LOG(INFO) << "\n" 
-//               << "Best condition selected GPU Equal Width:\n"
-//               << best_condition->DebugString();
-
 ////////////////////////////////////////////////////////////////////////////////////
-
-
-
 
   /* #region update Best Threshold & Projection */
 
