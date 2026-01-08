@@ -194,6 +194,29 @@ pip install pandas
 		--Get Best Projection, Best Gain, Best Threshold  
 		--Needed both gain and split so it can be reduced block wide  
 		
+# System setup in WSL
+Create development environment for GPU acceleration in WSL  
+
+## For WSL-Ubuntu
+https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_local  
+Install NVIDIA GeForce Game Ready or NVIDIA RTX Quadro Windows 11 display driver on your system with a compatible GeForce or NVIDIA RTX/Quadro card from https://www.nvidia.com/Download/index.aspx. Refer to the system requirements in the Appendix.)  
+
+## WSL Install
+wsl.exe --install  
+wsl.exe --update  
+
+## Install only CUDA toolkit
+https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=WSL-Ubuntu&target_version=2.0&target_type=deb_local   
+wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-wsl-ubuntu.pin  
+sudo mv cuda-wsl-ubuntu.pin /etc/apt/preferences.d/cuda-repository-pin-600  
+wget https://developer.download.nvidia.com/compute/cuda/13.1.0/local_installers/cuda-repo-wsl-ubuntu-13-1-local_13.1.0-1_amd64.deb  
+sudo dpkg -i cuda-repo-wsl-ubuntu-13-1-local_13.1.0-1_amd64.deb  
+sudo cp /var/cuda-repo-wsl-ubuntu-13-1-local/cuda-*-keyring.gpg /usr/share/keyrings/  
+sudo apt-get update  
+sudo apt-get -y install cuda-toolkit-13-1  
+
+
+
 
 
 
