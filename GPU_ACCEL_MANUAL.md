@@ -215,6 +215,23 @@ sudo cp /var/cuda-repo-wsl-ubuntu-13-1-local/cuda-*-keyring.gpg /usr/share/keyri
 sudo apt-get update  
 sudo apt-get -y install cuda-toolkit-13-1  
 
+## Git operation
+git status  
+git remote set-url origin https:/  
+git remote add origin https://  
+git clone https://github.com/topyoon2025-art/gpu_accel_ydf.git
+git config --global user.email   
+git config --global user.name  
+git add -A  
+git commit -m   
+git pull origin main  
+git push origin main  
+git restore "files"  
+git branch  
+
+
+
+
 
 
 

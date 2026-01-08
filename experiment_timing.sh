@@ -3,7 +3,7 @@
 set -euo pipefail
 
 BIN=bazel-bin/examples/train_oblique_forest
-CSV_DIR=/home/ubuntu/projects/gpu_accel_ydf/yggdrasil-oblique-forests
+CSV_DIR=/home/ubuntu/projects/dataset
 
 CSV_FILES=(
 #   "$CSV_DIR/32x100.csv"
@@ -26,7 +26,7 @@ CSV_FILES=(
 
 SPLIT_TYPES=("Random" "Equal Width")
 
-OUTCSV="benchmark_all.csv"
+OUTCSV="/home/ubuntu/projects/results/benchmark_all.csv"
 
 echo "dataset,split_type,metric,value" > "$OUTCSV"
 

@@ -4,7 +4,7 @@ set -euo pipefail
 RUNS="${1:?Usage: $0 <runs>}"                       # repetitions for every (dataset, split_type)
 
 BIN=./bazel-bin/examples/train_oblique_forest
-CSV_DIR=/home/ubuntu/projects/gpu_accel_ydf/yggdrasil-oblique-forests
+CSV_DIR=/home/ubuntu/projects/dataset
 
 CSV_FILES=(
   "$CSV_DIR/32x100.csv"
@@ -41,7 +41,7 @@ COMMON_ARGS=(
   #--GPU_usage            1
 )
 
-OUTFILE="results_all_splits.csv"
+OUTFILE="/home/ubuntu/projects/results/results_all_splits.csv"
 echo "gpu_usage,split_type,dataset,rows,avg_train_s,avg_prep_s,avg_model_s,avg_accuracy,successful_runs" \
   > "$OUTFILE"
 

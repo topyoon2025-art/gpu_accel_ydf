@@ -9,7 +9,7 @@
 set -euo pipefail
 
 BIN=./bazel-bin/examples/train_oblique_forest
-CSV_DIR=/home/ubuntu/projects/gpu_accel_ydf/yggdrasil-oblique-forests
+CSV_DIR=/home/ubuntu/projects/dataset
 
 DEFAULT_DATASETS=(
   "$CSV_DIR/1048576x100.csv"
@@ -39,7 +39,7 @@ COMMON_ARGS=(
   --tree_depth="$TREE_DEPTH"
 )
 
-OUTFILE="depth_times_all.csv"
+OUTFILE="/home/ubuntu/projects/results/depth_times_all.csv"
 echo "dataset,split_type,gpu_usage,depth,time_ms" > "$OUTFILE"
 
 for SPLIT_TYPE in "${SPLIT_TYPES[@]}"; do

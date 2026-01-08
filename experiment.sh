@@ -21,7 +21,7 @@ set -euo pipefail
 SPLIT_TYPE="${*:-Exact}"
 
 BIN=./bazel-bin/examples/train_oblique_forest
-CSV_DIR=/home/ubuntu/projects/gpu_accel_ydf/yggdrasil-oblique-forests
+CSV_DIR=/home/ubuntu/projects/dataset
 
 CSV_FILES=(
   "$CSV_DIR/32x100.csv"
@@ -54,7 +54,7 @@ COMMON_ARGS=(
 )
 # ---------------------------------------------------------------------
 
-OUTFILE="results_${SPLIT_TYPE// /_}.csv"
+OUTFILE="/home/ubuntu/projects/results/results_${SPLIT_TYPE// /_}.csv"
 echo "dataset,rows,train_time_s,data_prep_s,model_only_s,accuracy" > "$OUTFILE"
 
 for csv in "${CSV_FILES[@]}"; do
