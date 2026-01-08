@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUNS="${1:?Usage: $0 <runs>}"                       # repetitions for every (dataset, split_type)
+RUNS="${1:?Usage: $0 <runs>}"
 
 BIN=./bazel-bin/examples/train_oblique_forest
 CSV_DIR=/home/ubuntu/projects/dataset
@@ -25,9 +25,8 @@ CSV_FILES=(
   "$CSV_DIR/1048576x100.csv"
 )
 
-# Split modes we want to test
 SPLIT_TYPES=("Exact" "Random" "Equal Width")
-GPU_MODES=(0 1)   # <-- CPU + GPU
+GPU_MODES=(0 1)
 
 COMMON_ARGS=(
   --input_mode           csv
@@ -38,7 +37,6 @@ COMMON_ARGS=(
   --tree_depth           2
   --histogram_num_bins   255
   --computation_method   0
-  #--GPU_usage            1
 )
 
 OUTFILE="/home/ubuntu/projects/results/results_all_splits.csv"
@@ -75,12 +73,15 @@ for GPU in "${GPU_MODES[@]}"; do
                --GPU_usage "$GPU" \
                "${COMMON_ARGS[@]}" 2>&1 | tee "$log"
 
-        train=$(grep -oP 'Training time:\s*\K[0-9.]+'                     "$log" | tail -1)
-        prep=$( grep -oP 'Total Data and Label Prep Time:\s*\K[0-9.]+'    "$log" | tail -1)
-        acc=$(  grep -oP 'Final OOB metrics: accuracy:\K[0-9.]+'          "$log" | tail -1)
+        # --- BULLETPROOF REGEXES ---
+        train=$(grep -oP 'Training time\s*[:=]\s*\K[0-9.]+' "$log" | tail -1)
+        prep=$(grep -oP 'Total Data and Label Prep Time.*?\K[0-9.]+' "$log" | tail -1)
+        acc=$(grep -oP 'accuracy\s*[:=]\s*\K[0-9.]+' "$log" | tail -1)
+
         rm -f "$log"
 
-        if [[ -z $train || -z $prep || -z $acc ]]; then
+        # Validate numeric
+        if [[ ! $train =~ ^[0-9.]+$ || ! $prep =~ ^[0-9.]+$ || ! $acc =~ ^[0-9.]+$ ]]; then
           echo "    ↳ could not parse output, ignoring this run"
           continue
         fi
