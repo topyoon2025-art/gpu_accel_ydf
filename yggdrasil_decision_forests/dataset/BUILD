@@ -1,6 +1,3 @@
-load("@rules_cuda//cuda:defs.bzl", "cuda_library")
-load("@rules_cc//cc:defs.bzl",   "cc_library")
-
 load("//yggdrasil_decision_forests/utils:compile.bzl", "all_proto_library", "cc_library_ydf")
 
 package(
@@ -191,18 +188,17 @@ cc_library_ydf(
         ":example_writer_interface",
         ":formats",
         ":vertical_dataset",
-        "//yggdrasil_decision_forests/learner/decision_tree:randomprojection", # Random Projection
         "//yggdrasil_decision_forests/utils:concurrency",
         "//yggdrasil_decision_forests/utils:logging",
         "//yggdrasil_decision_forests/utils:sharded_io",
         "//yggdrasil_decision_forests/utils:status_macros",
         "//yggdrasil_decision_forests/utils:usage",
+        "//yggdrasil_decision_forests/learner/decision_tree:randomprojection", # Random Projection
         "@com_google_absl//absl/log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
     ],
-    #linkopts = ["-lcudart", "-L/usr/local/cuda-13.1/lib64", "-lcublas"]
 )
 
 cc_library_ydf(

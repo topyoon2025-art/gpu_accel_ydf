@@ -80,6 +80,12 @@ ABSL_FLAG(std::string, numerical_split_type, "Exact",
 ABSL_FLAG(int, histogram_num_bins, 255,
           "Number of bins for histogram splitting.");
 
+ABSL_FLAG(int, computation_method, 0,
+          "Computation method, 0 for Entropy and 1 for Gini.");
+
+ABSL_FLAG(int, GPU_usage, 1,
+          "Whether to use GPU for computation (0 for CPU, 1 for GPU).");
+
 using namespace yggdrasil_decision_forests;
 
 /* #endregion */

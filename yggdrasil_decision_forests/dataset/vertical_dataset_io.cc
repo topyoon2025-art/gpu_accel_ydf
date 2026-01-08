@@ -99,6 +99,7 @@ absl::Status LoadVerticalDatasetSingleThread(
       << 100 * skipped_examples /
              std::max<size_t>(1, dataset->nrow() + skipped_examples)
       << "%) examples have been skipped.";
+  
   LOG_EVERY_N_SEC(INFO, 30)
     << "Dataset_IO test: " << dataset->nrow();
   auto end_total = clock::now();
@@ -148,8 +149,8 @@ absl::Status LoadVerticalDatasetSingleThread(
   std::chrono::duration<double> warmup_duration = warmup_end - warmup_start;
   std::cout << "CUDA Warmup Time taken at data loading: " << warmup_duration.count() << " s" << std::endl;
 
-  std::cout << "GPU specific Data Prep time: " << flattenDataDuration.count() + durationLabel.count() + warmup_duration.count() << " s" << std::endl;
-  std::cout << "Total Data and Label Prep Time: " << duration_total.count() + flattenDataDuration.count() + durationLabel.count() + warmup_duration.count() << " s" << std::endl;
+  std::cout << "GPU specific Data Prep Time taken: " << flattenDataDuration.count() + durationLabel.count() + warmup_duration.count() << " s" << std::endl;
+  std::cout << "Total Data and Label Prep Time taken: " << duration_total.count() + flattenDataDuration.count() + durationLabel.count() + warmup_duration.count() << " s" << std::endl;
   return status.status();
 }
 

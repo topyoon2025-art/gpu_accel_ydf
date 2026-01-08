@@ -45,6 +45,8 @@ cc_library_ydf(
         "training.h",
         "vector_sequence.h",
     ],
+
+    #copt only difference for each build from VM
     copts = [
     # CUDA include root
     "-Iexternal/local_cuda/cuda/include",
