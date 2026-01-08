@@ -2,58 +2,79 @@
 Create development environment for GPU acceleration
 
 ## System to build on
-Ubuntu 24.04 in AWS g6.4xlarge
+Ubuntu 24.04 in AWS g6.4xlarge or General
 
 ## Repository update and upgrade: 
 sudo apt update && sudo apt upgrade -y
 
 ## Install miniconda
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O Miniconda3.sh
+
 bash Miniconda3.sh
+
 conda create -n ydf-accel python=3.13
 
 ## Restart terminal for miniconda to be effective
 Need to restart terminal to use miniconda for the first time
 
-## Create appropriate directory
-mkdir projects
-mkdir projects/gpu_accel_ydf
-
 ## Activate miniconda (base) and (ydf-accel)
 conda activate
+
 conda activate ydf-accel
+
+## Create appropriate directory
+mkdir projects
+
+## Now, clone gpu_accel_ydf in projects directory
+git clone https://github.com/topyoon2025-art/gpu_accel_ydf.git
 
 ## Bazel installation
 sudo curl -L https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64 -o /usr/local/bin/bazel 
+
 chmod +x /usr/local/bin/bazel 
+
 bazel version (to check version to be 6.5.0)
+
+example  
+bazel build \\examples:train_oblique_forests
+
+
 sudo reboot
 
 ## Install gcc and g++ 12 as gcc/g++ 13 not compatible with the latest CUDA Toolkit
 sudo apt update
+
 sudo apt install gcc-12 g++-12
 
 ## Install CUDA ToolKit: https://developer.nvidia.com/cuda-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=24.04&target_type=deb_network
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
+
 sudo apt-get update
+
 sudo apt-get -y install cuda-toolkit-13-1
 
 ## Install Nvidia Driver, choose one below and you can switch between
 sudo apt-get install -y nvidia-open
+
 sudo apt-get install -y cuda-drivers
 
 ## Set environment variables for cuda-13.1
 export CUDA_HOME=/usr/local/cuda-13.1
+
 export CUDA_TOOLKIT_PATH=/usr/local/cuda-13.1
+
 export PATH=$CUDA_HOME/bin:$PATH
+
 export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
 
 ## Set symlink for cuda-13.1 to generic path
 sudo ln -sfn /usr/local/cuda-13.1 /usr/local/cuda
 
-## Now, clone gpu_accel_ydf
-git clone https://github.com/topyoon2025-art/gpu_accel_ydf.git
+## Set up treeple and panda for python file to generate dataset
+python -m pip install treeple  
+pip install pandas  
 
 ## Files changed/modified from https://github.com/ariellubonja/yggdrasil-oblique-forests.git
 		modified:   .bazelrc
