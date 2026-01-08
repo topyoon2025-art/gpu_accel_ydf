@@ -37,7 +37,7 @@ bazel version (to check version to be 6.5.0)
 
 example  
 bazel build \\examples:train_oblique_forests  
-bazel-bin/examples/train_oblique_forest --input_mode csv --max_num_projections 100 --num_trees 1 --label_col target --numerical_split_type 'Equal Width' --num_threads 1 --tree_depth 2 --train_csv bazel-bin/examples/train_oblique_forest --input_mode csv --max_num_projections 100 --num_trees 1 --label_col target --numerical_split_type 'Equal Width' --num_threads 1 --tree_depth 2 --train_csv /home/ubuntu/projects/dataset/1048576x100.csv
+bazel-bin/examples/train_oblique_forest --input_mode csv --max_num_projections 100 --num_trees 1 --label_col target --numerical_split_type 'Equal Width' --num_threads 1 --tree_depth 2 --train_csv /home/ubuntu/projects/dataset/1048576x100.csv
 
 
 sudo reboot
