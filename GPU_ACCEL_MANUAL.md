@@ -35,7 +35,7 @@ bazel-bin/examples/train_oblique_forest --input_mode csv --max_num_projections 1
 
 sudo reboot  
 
-## Install gcc and g++ 12 as gcc/g++ 13 not compatible with the latest CUDA Toolkit
+## Install gcc and g++ 12 as gcc/g++ 13 not compatible with the latest CUDA Toolkit, Maybe not needed
 sudo apt update  
 sudo apt install gcc-12 g++-12  
 
@@ -49,7 +49,7 @@ sudo apt-get -y install cuda-toolkit-13-1
 sudo apt-get install -y nvidia-open  
 sudo apt-get install -y cuda-drivers  
 
-## Set environment variables for cuda-13.1
+## Set environment variables for cuda-13.1, Maybe not needed
 export CUDA_HOME=/usr/local/cuda-13.1  
 export CUDA_TOOLKIT_PATH=/usr/local/cuda-13.1  
 export PATH=$CUDA_HOME/bin:$PATH  
