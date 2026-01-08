@@ -95,118 +95,118 @@ pip install pandas
 
 ## References to functions in randomprojection.cu and oblique.cc
 
---oblique.cc	
-	--Set use_GPU variable to 1 to use GPU and set it to 0 to use CPU
-	--Prepare all projection using the below to break out of for loop
-		std::vector<std::vector<int>> projection_col_idx;//Stores column indices per projection for GPU function
-		std::vector<std::vector<float>> projection_weights;//Stores weights per column per projection for GPU function
-		std::vector<Projection> current_projections;
-	--Only SampleProjection in for loop
-	--Copy selected examples indices to device 
-	--Create d_min_vals, d_max_vals, d_bin_widths to be available in this file
-	--ApplyProjectionColumnAdd
-		--Perform Apply Projections
-		--Get min vals, max vals and bin widths for Equal Width and Random Histogram
-	--RandomHistogram
-		--Random Histogram binning
-	--EqaualWidthHistogram
-		--Equal Histogram binning
-	--HistogramSplit
-		--Split for both Random and Equal Width Histogram
-			--Computes Best Bin, Best Gain, Best Threshold, and Num Pos Examples
-	--ThrustSortIndicesOnly
-		--Sort the indices from selected examples based on values 
-	--ExactSplit
-		--Split for Exact 
-	--Update best_condition in YDF for the next iterations
+--oblique.cc  	
+	--Set use_GPU variable to 1 to use GPU and set it to 0 to use CPU  
+	--Prepare all projection using the below to break out of for loop  
+		std::vector<std::vector<int>> projection_col_idx;//Stores column indices per projection for GPU function  
+		std::vector<std::vector<float>> projection_weights;//Stores weights per column per projection for GPU function  
+		std::vector<Projection> current_projections;  
+	--Only SampleProjection in for loop  
+	--Copy selected examples indices to device   
+	--Create d_min_vals, d_max_vals, d_bin_widths to be available in this file  
+	--ApplyProjectionColumnAdd  
+		--Perform Apply Projections  
+		--Get min vals, max vals and bin widths for Equal Width and Random Histogram  
+	--RandomHistogram  
+		--Random Histogram binning  
+	--EqaualWidthHistogram  
+		--Equal Histogram binning  
+	--HistogramSplit  
+		--Split for both Random and Equal Width Histogram  
+			--Computes Best Bin, Best Gain, Best Threshold, and Num Pos Examples  
+	--ThrustSortIndicesOnly  
+		--Sort the indices from selected examples based on values   
+	--ExactSplit  
+		--Split for Exact   
+	--Update best_condition in YDF for the next iterations  
 			
---randomprojection.cu
-	--ColumnAddProjectionKernel
-		--Device kernel to compute Apply Projection
-	--ColumnAddComputeMinMaxCombined
-		--Device kernel to compute Apply Projection / min and max values for Histogram
-	--ApplyProjectionColumnADD
+--randomprojection.cu  
+	--ColumnAddProjectionKernel  
+		--Device kernel to compute Apply Projection  
+	--ColumnAddComputeMinMaxCombined  
+		--Device kernel to compute Apply Projection / min and max values for Histogram  
+	--ApplyProjectionColumnADD  
+		--Host Function   
+		--Prep with weights and offsets  
+			--col_per_proj: Number of columns per projection since SampleProjection produces different number of columns for projection //lambda function to get size of each inner vector  
+			--offset: Get the offset using inclusive scan since it will be flattened out of vector of vectors  
+			--Total Size: Calculate total size for flattening of the vector of vectors using accumulate  
+			--Copy and Flatten projection data structures using memcpy for both column indices and weights  
+			--Copy offset, column indices, and weiths to device  
+		--Call ColumnAddProjectionKernel for Exact  
+		--Call ColumnAddComputeMinMaxCombined for Histogram binning for both Equal Width and Random binning  
+		--Retrieve min and max values from each block  
+			--gridDim.x is the number of blocks per projection and d_block_min and d_block_max contains the min and max values per block  
+			--Retrieve min and max values per the number of blocks per projection using offsets.  
+	--BuildHistogramEqualWidthKernel  	
+		--Device Kernel for Equal Width Histogram binning for 3 classes, cutomized to 2 classes 0 and 1  
+		--Arthmetic binning by (max - min) / (num_bins)  
+	--struct index_to_proj  
+		--Callable object, Linear index into "projection buckets", number of bins per projection  
+	--EqualWidthHistogram  
+		--Host Function for Equal Width Histogram  
+		--Calls BuildHistogramEqualWidthKernel  
+		--Compute prefix sums by doing inclusive scan by key  
+	--lower_bound_naive_device  
+		--Device kernel for Random binning  
+		--Compare all bin boundaries until matching with the right bin then return bin number  
+	--BuildHistogramRandomKernel  
+		--Device Kernel for Random binning  
+		--Two Options  
+			--lower_bound_naive_device explained above  
+			--cub::lowerbound for binning by binary search tree method  
+	--RandomHistogram  
+		--Copy min and max vals for projections from device to host  
+		--Generate random splits for all projections  
+		--Sort the random split boundaries per segment / per the number of bins  
+		--Call BuildHistogramRandomKernel  
+		--Compute prefix sums by doing inclusive scan by key  
+	--entropy  
+		--Device kernel to compute Entropy  
+	--gini  
+		--Device kernel to compute Gini  
+	--FindBestGiniSplitKernel  
+		--Device kernel to compute gini out per bin per projection  
+	--FindBestEntropySplitKernel  
+		--Device kernel to compute entropy out per bin per projection  
+	--HistogramSplit  
+		--Host Function  
+		--Call FindBestEntropySplitKernel or FindBestGiniSplitKernel based on the compute method  
+		--Retrieve max using cub::DeviceReduce::ArgMax  
+		--Get Best Projection, Best Gain, Best Bin, Num Pos Examples, Best Threshold  
+		--Need just gain as the array is 1 D and index information is not lost since not reduced block wide.  Possible since we have a relatively small number of bins per projection.  
+	--ThrustSortIndicesOnly  
+		--Host Function  
+		--Replicate the selected example indices for each projection  
+		--Sort the indices based on the values per projection  
+	--atomicMaxFloat  
+		--Performs an atomic max on a float  
+	--struct ArgMaxPair  
+		--Return (value, index) pair with the maximum value, Key is gain and value is split  
+	--GiniGainKernel  
+		--Can do equal frequency quantiles  
+		--Device kernel  
+		--Compute the best gini gain and split per block through block-wide reduction  
+		--Then thread 0 puts the max value and index per block  
+	--EntropyGainKernel  
+		--Can do equal frequency quantiles  
+		--Device kernel  
+		--Compute the best gini gain and split per block through block-wide reduction  
+		--Then thread 0 puts the max value and index per block  
+	--buildPosFlag  
+		--Device kernel in 1D grid  
+		--Assign labels of 1  
+	--invertFlag  
+		--Device kernel to turn positives into negatives  
+		--Assign labels of 0  
+	--ExactSplit  	
 		--Host Function 
-		--Prep with weights and offsets
-			--col_per_proj: Number of columns per projection since SampleProjection produces different number of columns for projection //lambda function to get size of each inner vector
-			--offset: Get the offset using inclusive scan since it will be flattened out of vector of vectors
-			--Total Size: Calculate total size for flattening of the vector of vectors using accumulate
-			--Copy and Flatten projection data structures using memcpy for both column indices and weights
-			--Copy offset, column indices, and weiths to device
-		--Call ColumnAddProjectionKernel for Exact
-		--Call ColumnAddComputeMinMaxCombined for Histogram binning for both Equal Width and Random binning
-		--Retrieve min and max values from each block
-			--gridDim.x is the number of blocks per projection and d_block_min and d_block_max contains the min and max values per block
-			--Retrieve min and max values per the number of blocks per projection using offsets.
-	--BuildHistogramEqualWidthKernel	
-		--Device Kernel for Equal Width Histogram binning for 3 classes, cutomized to 2 classes 0 and 1
-		--Arthmetic binning by (max - min) / (num_bins)
-	--struct index_to_proj
-		--Callable object, Linear index into "projection buckets", number of bins per projection
-	--EqualWidthHistogram
-		--Host Function for Equal Width Histogram
-		--Calls BuildHistogramEqualWidthKernel
-		--Compute prefix sums by doing inclusive scan by key
-	--lower_bound_naive_device
-		--Device kernel for Random binning
-		--Compare all bin boundaries until matching with the right bin then return bin number
-	--BuildHistogramRandomKernel
-		--Device Kernel for Random binning
-		--Two Options
-			--lower_bound_naive_device explained above
-			--cub::lowerbound for binning by binary search tree method
-	--RandomHistogram
-		--Copy min and max vals for projections from device to host
-		--Generate random splits for all projections
-		--Sort the random split boundaries per segment / per the number of bins
-		--Call BuildHistogramRandomKernel
-		--Compute prefix sums by doing inclusive scan by key
-	--entropy
-		--Device kernel to compute Entropy
-	--gini
-		--Device kernel to compute Gini
-	--FindBestGiniSplitKernel
-		--Device kernel to compute gini out per bin per projection
-	--FindBestEntropySplitKernel
-		--Device kernel to compute entropy out per bin per projection
-	--HistogramSplit
-		--Host Function
-		--Call FindBestEntropySplitKernel or FindBestGiniSplitKernel based on the compute method
-		--Retrieve max using cub::DeviceReduce::ArgMax
-		--Get Best Projection, Best Gain, Best Bin, Num Pos Examples, Best Threshold
-		--Need just gain as the array is 1 D and index information is not lost since not reduced block wide.  Possible since we have a relatively small number of bins per projection.
-	--ThrustSortIndicesOnly
-		--Host Function
-		--Replicate the selected example indices for each projection
-		--Sort the indices based on the values per projection
-	--atomicMaxFloat
-		--Performs an atomic max on a float
-	--struct ArgMaxPair
-		--Return (value, index) pair with the maximum value, Key is gain and value is split
-	--GiniGainKernel
-		--Can do equal frequency quantiles
-		--Device kernel
-		--Compute the best gini gain and split per block through block-wide reduction
-		--Then thread 0 puts the max value and index per block
-	--EntropyGainKernel
-		--Can do equal frequency quantiles
-		--Device kernel
-		--Compute the best gini gain and split per block through block-wide reduction
-		--Then thread 0 puts the max value and index per block
-	--buildPosFlag
-		--Device kernel in 1D grid
-		--Assign labels of 1
-	--invertFlag
-		--Device kernel to turn positives into negatives
-		--Assign labels of 0
-	--ExactSplit	
-		--Host Function
-		--Call buildPosFlag to assign positive labels then perform inclusive scan by key for each projection to compute prefix sums for positive labels
-		--Call invertFlag to assign negative labels then perform inclusive scan by key for each projection to compute prefix sums for negative labels
-		--Call EntropyGainKernel or GiniGainKernel to get max value and index per block based on comp method
-		--Retrieve max gain and key out of all the blocks
-		--Get Best Projection, Best Gain, Best Threshold
-		--Needed both gain and split so it can be reduced block wide
+		--Call buildPosFlag to assign positive labels then perform inclusive scan by key for each projection to compute prefix sums for positive labels  
+		--Call invertFlag to assign negative labels then perform inclusive scan by key for each projection to compute prefix sums for negative labels  
+		--Call EntropyGainKernel or GiniGainKernel to get max value and index per block based on comp method  
+		--Retrieve max gain and key out of all the blocks  
+		--Get Best Projection, Best Gain, Best Threshold  
+		--Needed both gain and split so it can be reduced block wide  
 		
 
 
