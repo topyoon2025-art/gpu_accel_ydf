@@ -455,7 +455,7 @@ int main(int argc, char** argv) {
   cudaFree(yggdrasil_decision_forests::dataset::d_global_flat_data);
   auto end = std::chrono::steady_clock::now();
   std::chrono::duration<double, std::milli> dur = end - start;
-  std::cout << "Training time: " << dur.count() << "ms\n";
+  std::cout << "Training time: " << dur.count() << " ms\n";
 
   // 4) Save model if requested
   const std::string out_dir = absl::GetFlag(FLAGS_model_out_dir);
