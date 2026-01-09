@@ -62,6 +62,14 @@ sudo ln -sfn /usr/local/cuda-13.1 /usr/local/cuda
 python -m pip install treeple   
 pip install pandas  
 
+## bazel compilation with macro options
+bazel build //examples:train_oblique_forest --cxxopt=-DPROFILE0 --define=profile1=true --cxxopt=-DPROFILE2 --cxxopt=-DPROFILE3  
+--cxxopt=-DPROFILE0 	#timing in vertical_dataset_io.cc for Data loading time in the beginning  
+--define=profile1=true 	#timing in randomprojection.cu for Micro Benchmarking  
+--cxxopt=-DPROFILE2   	#timing in training.cc for Depth  
+--cxxopt=-DPROFILE3		#timing in oblique.cc for Split Types 
+--cxxopt=-ALL_TIMING_OBLIQUE #All timing in oblique.cc  
+
 ## Files changed/modified from https://github.com/ariellubonja/yggdrasil-oblique-forests.git
 		modified:   .bazelrc
         modified:   .vscode/c_cpp_properties.json
