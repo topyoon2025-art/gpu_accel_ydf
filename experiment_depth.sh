@@ -27,8 +27,8 @@ DATASETS=("$@")
 [[ ${#DATASETS[@]} -eq 0 ]] && DATASETS=("${DEFAULT_DATASETS[@]}")
 
 # ------------------------------------------------------------------
-SPLIT_TYPES=("Exact")
-GPU_USAGES=(1)
+SPLIT_TYPES=("Exact" "Random" "Equal Width")
+GPU_USAGES=(0 1)
 
 COMMON_ARGS=(
   --input_mode=csv
