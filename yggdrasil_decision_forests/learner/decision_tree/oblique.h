@@ -63,6 +63,40 @@ namespace yggdrasil_decision_forests {
 namespace model {
 namespace decision_tree {
 
+#ifdef PROFILE3
+  #include <chrono>
+  #include <iostream>
+
+  // ------------------------------------------------------------------
+  // 1. mark the beginning of the timed section
+  // ------------------------------------------------------------------
+  #define TIMER_START3(tag)                                               \
+      auto _t_##tag##_start = std::chrono::steady_clock::now()
+
+  // ------------------------------------------------------------------
+  // 2. mark the end of the timed section – stores the elapsed time
+  //    (does *not* print)
+  // ------------------------------------------------------------------
+  #define TIMER_STOP3(tag)                                                \
+      auto _t_##tag##_elapsed =                                          \
+          std::chrono::duration<double, std::milli>(                     \
+              std::chrono::steady_clock::now() - _t_##tag##_start)
+
+  // ------------------------------------------------------------------
+  // 3. print the elapsed time that was computed by TIMER_STOP
+  // ------------------------------------------------------------------
+  #define TIMER_PRINT3(tag, msg)                                          \
+      std::cout << (msg) << ": " << _t_##tag##_elapsed.count() << " ms\n"
+
+#else   // -------------------------------------------------------------
+
+  /* no-op versions so the code still compiles and optimises away */
+  #define TIMER_START3(tag)
+  #define TIMER_STOP3(tag)
+  #define TIMER_PRINT3(tag, msg)
+
+#endif
+
 // The following three "FindBestConditionOblique" functions are searching
 // for the best sparse oblique split for different objectives / loss functions.
 // These methods only differ by the type of the "label_stats" argument.

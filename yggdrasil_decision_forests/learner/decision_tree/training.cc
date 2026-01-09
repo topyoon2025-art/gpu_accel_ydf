@@ -5297,7 +5297,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                                 deployment, splitter_concurrency_setup, weights, 1,
                                 internal_config, constraints, false, dt->mutable_root(),
                                 random, &cache, selected_examples_rb, leaf_examples_rb);
-        PrintDepthTimes();  
+        #ifdef PROFILE2
+          PrintDepthTimes();  
+        #endif
         return status;
       }
       break;
@@ -5343,8 +5345,10 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         sample_cnt()[t][d] += selected_examples.size();
       }
     #endif
-    
-    const absl::Time t_start = absl::Now();
+
+    #ifdef PROFILE2
+      const absl::Time t_start = absl::Now();
+    #endif
 
     /* #region Exit Conditions */
     if (selected_examples.empty())
@@ -5563,7 +5567,9 @@ return found_split ? SplitSearchResult::kBetterSplitFound
     if constexpr (PRINT_PROJECTION_MATRICES) {
       std::cout << "\nStarting work on Positive child" << std::endl;
     }
-    AddToDepthBucket(depth, absl::Now() - t_start);
+    #ifdef PROFILE2
+      AddToDepthBucket(depth, absl::Now() - t_start);
+    #endif
     RETURN_IF_ERROR(
         NodeTrain(train_dataset, config, config_link, dt_config, deployment,
                   splitter_concurrency_setup, weights, depth + 1, internal_config,

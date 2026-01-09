@@ -42,8 +42,8 @@ COMMON_ARGS=(
 OUTFILE="/home/ubuntu/projects/results/depth_times_all.csv"
 echo "dataset,split_type,gpu_usage,depth,time_ms" > "$OUTFILE"
 
-for SPLIT_TYPE in "${SPLIT_TYPES[@]}"; do
-  for GPU in "${GPU_USAGES[@]}"; do
+for GPU in "${GPU_USAGES[@]}"; do
+  for SPLIT_TYPE in "${SPLIT_TYPES[@]}"; do
     echo
     echo "###############################################################"
     echo "Split-type: $SPLIT_TYPE   |   GPU_usage: $GPU   |   depth: $TREE_DEPTH"

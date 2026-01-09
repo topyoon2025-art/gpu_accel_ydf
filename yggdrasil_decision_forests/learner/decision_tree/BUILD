@@ -10,6 +10,11 @@ package(
     licenses = ["notice"],
 )
 
+
+config_setting(
+    name = "profile_on_1",
+    values = {"define": "profile1=true"},
+)
 # Libraries
 # =========================================================
 cuda_library(
@@ -26,10 +31,13 @@ cuda_library(
     ],
    copts = [
         "-std=c++17",
-        "-Xcompiler", "-std=c++17",
+        "-Xcompiler",
         "-DGOOGLE_PROTOBUF_NO_ARENA=1",
         "-Wno-deprecated-gpu-targets",
-    ],
+    ] + select({
+        ":profile_on_1": ["-DPROFILE1"],   # added only when --define=profile=true
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
 )
 

@@ -47,6 +47,40 @@
 
 namespace yggdrasil_decision_forests::model::decision_tree {
 
+#ifdef PROFILE2
+  #include <chrono>
+  #include <iostream>
+
+  // ------------------------------------------------------------------
+  // 1. mark the beginning of the timed section
+  // ------------------------------------------------------------------
+  #define TIMER_START2(tag)                                               \
+      auto _t_##tag##_start = std::chrono::steady_clock::now()
+
+  // ------------------------------------------------------------------
+  // 2. mark the end of the timed section – stores the elapsed time
+  //    (does *not* print)
+  // ------------------------------------------------------------------
+  #define TIMER_STOP2(tag)                                                \
+      auto _t_##tag##_elapsed =                                          \
+          std::chrono::duration<double, std::milli>(                     \
+              std::chrono::steady_clock::now() - _t_##tag##_start)
+
+  // ------------------------------------------------------------------
+  // 3. print the elapsed time that was computed by TIMER_STOP
+  // ------------------------------------------------------------------
+  #define TIMER_PRINT2(tag, msg)                                          \
+      std::cout << (msg) << ": " << _t_##tag##_elapsed.count() << " ms\n"
+
+#else   // -------------------------------------------------------------
+
+  /* no-op versions so the code still compiles and optimises away */
+  #define TIMER_START2(tag)
+  #define TIMER_STOP2(tag)
+  #define TIMER_PRINT2(tag, msg)
+
+#endif
+
 // A collection of objects used by split-finding methods.
 //
 // The purpose of this cache structure is to avoid repeated allocation of the

@@ -35,7 +35,6 @@
 #include <cub/cub.cuh>
 #include <cub/device/device_scan.cuh>
 #include <cub/device/device_segmented_reduce.cuh>
-//#include "/home/nvidia/projects/yggdrasil-oblique-forests/yggdrasil_decision_forests/utils/random.h"
 
 
 __global__ void warmup() {
@@ -177,60 +176,51 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
 
     CUDA_CHECK(cudaGetLastError()); 
     ////////////////////////Data Preparation for col per projection on Host///////////////////////////
-    //auto startDataPrep = std::chrono::high_resolution_clock::now();
+
     int result_size = num_selected_examples * num_proj;
     const int P = static_cast<int>(projection_col_idx.size());
     std::vector<int> col_per_proj(P); //Number of columns per projection
-    //auto startCPY = std::chrono::high_resolution_clock::now();
+
     std::transform(projection_col_idx.begin(), projection_col_idx.end(),
                 col_per_proj.begin(),
                 [](const auto& v) { return static_cast<int>(v.size()); });
-    // auto endCPY = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double, std::milli> cpy_duration = endCPY - startCPY;
-    // printf("Data Processing Col Per Proj Time taken: %f ms\n", cpy_duration.count());
+
     ////////////////////////////////////////////////////////////////////////
 
     //////////////////////exclusive scan to get offsets///////////////////////////
     std::vector<int> offset(col_per_proj.size() + 1);
     /*  offset[0] must be 0.  Write the exclusive scan starting at offset[1]. */
     offset[0] = 0;
-    //auto startScan = std::chrono::high_resolution_clock::now();
+
     if (P > 0) {
         std::inclusive_scan(col_per_proj.begin(),           // first
                         col_per_proj.end(),             // last (exclusive)
                         offset.begin() + 1);    
     }
-    // auto endScan = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double, std::milli> scan_duration = endScan - startScan;
-    // printf("Exclusive Scan Time taken: %f ms\n", scan_duration.count());  
+  
     ////////////////////////////////////////////////////////////////////////  
 
     //////////////////////calculate total size for flattening///////////////////////////
     size_t total_size = 0;
-    //auto startAcc = std::chrono::high_resolution_clock::now();
+
     total_size = std::accumulate(
     projection_col_idx.begin(), projection_col_idx.end(), std::size_t{0},
     [](std::size_t sum, const auto& v) { return sum + v.size(); }); // Accumulate total size
-    // auto endAcc = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double, std::milli> acc_duration = endAcc - startAcc;
-    // printf("Total Size Accumulate Time taken: %f ms\n", acc_duration.count());
+
     //////////////////////////////////////////////////////////////////////////////////////
 
     ///////////////////////copy and flatten projection data structures///////////////////////////
     std::vector<int> flat_projection_col_idx(total_size);
-    //auto startMemcpy = std::chrono::high_resolution_clock::now();
+
     int* dst = flat_projection_col_idx.data();
     for (const auto& v : projection_col_idx) {
         const std::size_t bytes = v.size() * sizeof(int); //Flattening column indices
         std::memcpy(dst, v.data(), bytes);   // one bulk copy per inner vector
         dst += v.size();
     }
-    // auto endMemcpy = std::chrono::high_resolution_clock::now();
-    // std::chrono::duration<double, std::milli> memcpy_duration = endMemcpy - startMemcpy;
-    // printf("Memcpy Flatten Time taken: %f ms\n", memcpy_duration.count());
 
     std::vector<float> flat_projection_weights(total_size);
-    //auto startMemcpyW = std::chrono::high_resolution_clock::now();
+
     float* dst_w = flat_projection_weights.data();
     for (const auto& v : projection_weights) {
         std::memcpy(dst_w, v.data(), v.size() * sizeof(float)); //Flattening weights
@@ -257,23 +247,23 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     dim3 gridDim((num_selected_examples + blockDim.x - 1) / blockDim.x, num_proj);
     
     if (split_method == 0) { //Exact
-    auto startExact = std::chrono::steady_clock::now();    
-    ColumnAddProjectionKernel<<<gridDim, blockDim>>>(d_flat_data,
-                                                    d_selected_examples,
-                                                    d_col_add_projected,
-                                                    d_offset,
-                                                    d_flat_projection_col_idx,
-                                                    d_flat_projection_weights,
-                                                    num_selected_examples,
-                                                    num_total_rows,
-                                                    num_proj);
-    CUDA_CHECK(cudaPeekAtLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
-    auto endExact = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> exact_duration = endExact - startExact;
-    printf("Exact Projection Kernel Time taken: %f ms\n", exact_duration.count());
+        TIMER_START(ExactCAKernel);    
+        ColumnAddProjectionKernel<<<gridDim, blockDim>>>(d_flat_data,
+                                                        d_selected_examples,
+                                                        d_col_add_projected,
+                                                        d_offset,
+                                                        d_flat_projection_col_idx,
+                                                        d_flat_projection_weights,
+                                                        num_selected_examples,
+                                                        num_total_rows,
+                                                        num_proj);
+        CUDA_CHECK(cudaPeekAtLastError());
+        CUDA_CHECK(cudaDeviceSynchronize());
+        TIMER_STOP(ExactCAKernel);
+        TIMER_PRINT(ExactCAKernel, "GPU Exact Column Add Kernel Time taken");
     }
     else if (split_method == 2 || split_method == 1) { // Equal Width or Random
+        TIMER_START(HistogramCombinedKernel);
         const int total_blocks = num_proj * gridDim.x;
         float* d_min_vals;
         float* d_max_vals;          
@@ -292,7 +282,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
 
         size_t shmem = 2 * blockDim.x * sizeof(float);
 
-        auto startCombined = std::chrono::steady_clock::now();
+        TIMER_START(CombinedKernel);
         ColumnAddComputeMinMaxCombined<<<gridDim, blockDim, shmem>>>(d_flat_data,
                                                                         d_selected_examples,
                                                                         d_col_add_projected,
@@ -306,12 +296,9 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                                                                         d_block_max);
         CUDA_CHECK(cudaPeekAtLastError());
         CUDA_CHECK(cudaDeviceSynchronize()); //It blocks the CPU until the device has completed all preceding requested tasks.
-        auto endCombined = std::chrono::steady_clock::now();
-        std::chrono::duration<double, std::milli> combined_duration = endCombined - startCombined;
-        printf("Histogram Projection and Min/Max Kernel Time taken: %f ms\n", combined_duration.count());
+        TIMER_STOP(CombinedKernel);
         
-        auto startReduce = std::chrono::steady_clock::now();
-
+        TIMER_START(ReduceMinMax);
         thrust::device_vector<int> d_begin(num_proj);
         thrust::device_vector<int> d_end(num_proj);
 
@@ -373,9 +360,13 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
         CUDA_CHECK(cudaFree(d_temp));
         CUDA_CHECK(cudaFree(d_block_min));
         CUDA_CHECK(cudaFree(d_block_max));
-        auto endReduce = std::chrono::steady_clock::now();
-        std::chrono::duration<double, std::milli> reduce_duration = endReduce - startReduce;
-        printf("Histogram Final Reduce Min/Max Time taken: %f ms\n", reduce_duration.count());
+        TIMER_STOP(ReduceMinMax);
+        TIMER_STOP(HistogramCombinedKernel);
+
+        TIMER_PRINT(CombinedKernel, "GPU Histogram Column Add and Min/Max Kernel Time taken");
+        TIMER_PRINT(ReduceMinMax, "GPU Histogram Reduce Min/Max Time taken");
+        TIMER_PRINT(HistogramCombinedKernel, "GPU Histogram Column Add + Reduce Min/Max Time taken");
+
     }
     
     // Free device memory
@@ -469,7 +460,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     {
     ///////////////////////Calculate Bin Widths///////////////////////////
     
-    auto startEWBinning = std::chrono::steady_clock::now();
+    TIMER_START(EWBinning);
     std::vector<float> h_bin_widths(num_proj);
     for (int proj_id = 0; proj_id < num_proj; ++proj_id) {
         float min_val = h_min_vals[proj_id];
@@ -513,11 +504,10 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
                                                                              num_rows, num_proj, num_bins);
     CUDA_CHECK(cudaPeekAtLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    auto endEWBinning = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> ew_binning_duration = endEWBinning - startEWBinning;
+    TIMER_STOP(EWBinning);
 
     ///////////////////////Inclusive Scan per projection per class/////////////////////////////////////////
-    auto startScan = std::chrono::steady_clock::now();
+    TIMER_START(EWInclusiveScan);
     int total_rows = (num_bins) * num_proj;
 
     int* d_prefix_2;
@@ -570,11 +560,10 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     CUDA_CHECK(cudaStreamDestroy(stream0));
     CUDA_CHECK(cudaStreamDestroy(stream1));
 
-    auto endScan = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> scan_duration = endScan - startScan;
+    TIMER_STOP(EWInclusiveScan);
 
-    std::cout <<"Equal Width Binidth Calculations Histogram Kernel Binning Time taken: " << ew_binning_duration.count() << " ms\n";
-    std::cout <<"Equal Width Histogram Inclusive Scan Prefix Time taken: " << scan_duration.count() << " ms\n";
+    TIMER_PRINT(EWBinning, "GPU EW Binwidth Calculations and Histogram Binning Kernel Time taken");
+    TIMER_PRINT(EWInclusiveScan, "GPU EW Prefix Sum Time taken");
 
     *d_prefix_0_out = d_prefix_0;
     *d_prefix_1_out = d_prefix_1;
@@ -686,7 +675,7 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
                           std::mt19937& random
                           )
     {
-        auto startRandomBinning = std::chrono::steady_clock::now();
+        TIMER_START(RandomBinning);
         ///////////////////////Generate Random Candidate Splits/////////////////////////////////////////
         std::vector<float> candidate_splits(num_bins * num_proj);
         //Generate random candidate splits per projection on host
@@ -772,11 +761,10 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         CUDA_CHECK(cudaPeekAtLastError());
         CUDA_CHECK(cudaDeviceSynchronize());
 
-        auto endRandomBinning = std::chrono::steady_clock::now();
-        std::chrono::duration<double, std::milli> random_binning_duration = endRandomBinning - startRandomBinning;                                                             
+        TIMER_STOP(RandomBinning);                                                            
 
         ///////////////////////Inclusive Scan per projection per class/////////////////////////////////////////
-        auto startScan = std::chrono::steady_clock::now();
+        TIMER_START(RandomInclusiveScan);
         int total_rows = (ydf_bins) * num_proj;
 
         int* d_prefix_2;
@@ -829,10 +817,11 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         CUDA_CHECK(cudaDeviceSynchronize());
         CUDA_CHECK(cudaStreamDestroy(stream0));
         CUDA_CHECK(cudaStreamDestroy(stream1));
-        auto endScan = std::chrono::steady_clock::now();
-        std::chrono::duration<double, std::milli> scan_duration = endScan - startScan;    
-        std::cout <<"Random Boundaries Calculations and Histogram Binning Kernel Time taken: " << random_binning_duration.count() << " ms\n";    
-        std::cout <<"Random Histogram Inclusive Scan Prefix Time taken: " << scan_duration.count() << " ms\n";
+
+        TIMER_STOP(RandomInclusiveScan);
+
+        TIMER_PRINT(RandomBinning, "GPU Random Boundaries Calculations and Histogram Binning Kernel Time taken");
+        TIMER_PRINT(RandomInclusiveScan, "GPU Random Histogram Prefix Sum Time taken");
 
         *d_prefix_0_out = d_prefix_0;
         *d_prefix_1_out = d_prefix_1;
@@ -1001,7 +990,7 @@ void HistogramSplit (const int* d_prefix_0,
                       const int split_method
                     )
 {
-    auto startSplit = std::chrono::steady_clock::now();
+    TIMER_START(HistogramSplitEvaluation);
     float* d_out_per_bin_per_proj;
     CUDA_CHECK(cudaMalloc(&d_out_per_bin_per_proj, num_proj * (num_bins) * sizeof(float))); // Store Entropy gain for each bin (except last)
     void* d_temp_storage = nullptr;
@@ -1023,11 +1012,11 @@ void HistogramSplit (const int* d_prefix_0,
     }
     CUDA_CHECK(cudaPeekAtLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    auto endSplit = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> split_duration = endSplit - startSplit;
-    std::cout <<"Histogram Split Evaluation Kernel Time taken: " << split_duration.count() << " ms\n";
 
-    auto startReduce = std::chrono::steady_clock::now();
+    TIMER_STOP(HistogramSplitEvaluation);
+    
+
+    TIMER_START(HistogramBestGainReduction);
     // Find best gain across all projections and bins
     cub::KeyValuePair<int, float>* d_out1;
      // Allocate output
@@ -1066,35 +1055,30 @@ void HistogramSplit (const int* d_prefix_0,
 
        
         if (split_method == 1) { //Random
-            auto startThreshold = std::chrono::steady_clock::now();
             float best_threshold;
             int index = (*best_proj) * (num_bins - 1) + (*best_bin_out);
             CUDA_CHECK(cudaMemcpy(&best_threshold, d_candidate_splits + index, sizeof(float), cudaMemcpyDeviceToHost));
             *best_threshold_out = best_threshold;
             CUDA_CHECK(cudaFree((void *)d_candidate_splits));
-            auto endThreshold = std::chrono::steady_clock::now();
-            std::chrono::duration<double, std::milli> threshold_duration = endThreshold - startThreshold;
-            std::cout <<"Random Split Threshold Extraction Time taken: " << threshold_duration.count() << " ms\n";
         }
 
         if (split_method == 2) { //Equal Width
-            auto startThreshold = std::chrono::steady_clock::now();
             float bin_width;
             CUDA_CHECK(cudaMemcpy(&bin_width, d_bin_widths + *best_proj, sizeof(float), cudaMemcpyDeviceToHost));
             *best_threshold_out = (*best_bin_out + 0.5) * bin_width + h_min_vals[*best_proj];  
             CUDA_CHECK(cudaFree((void *)d_bin_widths));
             auto endThreshold = std::chrono::steady_clock::now();
-            std::chrono::duration<double, std::milli> threshold_duration = endThreshold - startThreshold;
-            std::cout <<"Equal Width Split Threshold Extraction Time taken: " << threshold_duration.count() << " ms\n";
         }
     }
-    auto endReduce = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> reduce_duration = endReduce - startReduce;
-    std::cout <<"Histogram Split Evaluation Time taken: " << split_duration.count() << " ms\n";
-    std::cout <<"Histogram Best Gain Reduction Time taken: " << reduce_duration.count() << " ms\n";
-
-
     CUDA_CHECK(cudaDeviceSynchronize());
+
+    TIMER_STOP(HistogramBestGainReduction);
+
+    TIMER_PRINT(HistogramSplitEvaluation, "GPU Histogram Gain Kernel Time taken");
+    TIMER_PRINT(HistogramBestGainReduction, "GPU Histogram Best Gain Reduction Time taken");
+
+
+    
     CUDA_CHECK(cudaFree(d_out_per_bin_per_proj));
 }
 
@@ -1157,21 +1141,6 @@ void ThrustSortIndicesOnly(float* d_proj_values, unsigned int* d_row_ids, unsign
         d_offsets.data().get() + 1     // segment end offsets
     );
     cudaFree(d_temp);
-
-    //auto start = std::chrono::high_resolution_clock::now();
-    // for (int k = 0; k < num_proj; ++k)
-    // {
-    //     const int offset = k * num_rows;
-    //     // keys  : projection values
-    //     thrust::device_ptr<float>        keys_begin (d_proj_values + offset);
-    //     // values: the row indices we want to permute with the keys
-    //     thrust::device_ptr<unsigned int> vals_begin (d_row_ids_iter + offset);
-
-    //     // stable_sort the keys; move the indices with them
-    //     thrust::stable_sort_by_key(keys_begin,
-    //                                keys_begin + num_rows,
-    //                                vals_begin);
-    // }
     cudaFree((void *)d_selected_examples);
 }
 
@@ -1418,8 +1387,7 @@ void ExactSplit(
     constexpr int STRIDE = 1; // You can adjust STRIDE for # of elements for split computation
     const int blockSize = 256;
 
-    auto start = std::chrono::steady_clock::now();
-
+    TIMER_START(ExactPrefixSum);
     const int logical_rows = (num_rows + STRIDE - 1) / STRIDE;
     int total_rows = num_proj * num_rows;
     int* d_prefix_pos;
@@ -1428,16 +1396,6 @@ void ExactSplit(
     CUDA_CHECK(cudaMalloc(&d_prefix_neg, (total_rows * sizeof(int) )));
     CUDA_CHECK(cudaMemset(d_prefix_pos, 0, total_rows * sizeof(int)));
     CUDA_CHECK(cudaMemset(d_prefix_neg, 0, total_rows * sizeof(int)));
-
-    int dimX = (logical_rows + blockSize - 1) / blockSize;
-    size_t shared_mem = sizeof(float) * blockSize + sizeof(int) * blockSize;
-    int total_blocks = num_proj * dimX;
-    int* d_block_best_split;
-    float* d_block_best_gain;
-    CUDA_CHECK(cudaMalloc(&d_block_best_split, total_blocks * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_block_best_gain, total_blocks * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_block_best_split, 0xFF, total_blocks * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_block_best_gain, 0xFF, total_blocks * sizeof(float)));
   
     int* d_flag;
     cudaStream_t stream0, stream1;
@@ -1482,11 +1440,20 @@ void ExactSplit(
     CUDA_CHECK(cudaStreamDestroy(stream0));
     CUDA_CHECK(cudaStreamDestroy(stream1));
     CUDA_CHECK(cudaFree(d_flag));
-   
-    auto end = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> elapsed_seconds = end - start;
+    TIMER_STOP(ExactPrefixSum);
+
     
-    auto startGain = std::chrono::steady_clock::now();
+    TIMER_START(ExactGainComputation);
+    int dimX = (logical_rows + blockSize - 1) / blockSize;
+    size_t shared_mem = sizeof(float) * blockSize + sizeof(int) * blockSize;
+    int total_blocks = num_proj * dimX;
+    int* d_block_best_split;
+    float* d_block_best_gain;
+    CUDA_CHECK(cudaMalloc(&d_block_best_split, total_blocks * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_block_best_gain, total_blocks * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_block_best_split, 0xFF, total_blocks * sizeof(int)));
+    CUDA_CHECK(cudaMemset(d_block_best_gain, 0xFF, total_blocks * sizeof(float)));
+    
     dim3 gridDim(dimX, num_proj); //int dimX = (logical_rows + blockSize - 1) / blockSize;
     if (comp_method == 0) {
         EntropyGainKernel<STRIDE, blockSize><<<gridDim, blockSize, shared_mem>>>(
@@ -1499,9 +1466,9 @@ void ExactSplit(
     }
     CUDA_CHECK(cudaPeekAtLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
-    auto endGain = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> gain_duration = endGain - startGain;
-    
+    TIMER_STOP(ExactGainComputation);
+
+    TIMER_START(ExactBestGainReduction);
     auto startReduce = std::chrono::steady_clock::now();
     void* d_temp_storage1 = nullptr;
     size_t temp_storage_bytes1 = 0;
@@ -1534,13 +1501,14 @@ void ExactSplit(
         CUDA_CHECK(cudaMemcpy(&threshold_2, d_col_add_projected + proj_offset + (*best_split_out), sizeof(float), cudaMemcpyDeviceToHost));
         *best_threshold_out = 0.5f * (threshold_1 + threshold_2);
     }
+    TIMER_STOP(ExactBestGainReduction);
 
-    auto endReduce = std::chrono::steady_clock::now();
-    std::chrono::duration<double, std::milli> reduce_duration = endReduce - startReduce;
 
-    std::cout <<"Exact Inclusive scan prefix by key Time taken: " << elapsed_seconds.count() << "ms\n";
-    std::cout <<"Exact Gain Calculation Kernel Time taken: " << gain_duration.count() << " ms\n";
-    std::cout <<"Exact Best Gain Reduction Time taken: " << reduce_duration.count() << " ms\n";
+    TIMER_PRINT(ExactPrefixSum, "GPU Exact Prefix Sum Time taken");
+    TIMER_PRINT(ExactGainComputation, "GPU Exact Gain Kernel Time taken");
+    TIMER_PRINT(ExactBestGainReduction, "GPU Exact Best Gain Reduction Time taken");
+
+
 
     CUDA_CHECK(cudaFree(d_out1));
     CUDA_CHECK(cudaFree(d_temp_storage1));

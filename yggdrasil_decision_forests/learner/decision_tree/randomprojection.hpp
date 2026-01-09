@@ -6,6 +6,7 @@
 #include <cuda_runtime.h>
 #include <vector>
 
+
 #define CUDA_CHECK(call)                                                      \
     do {                                                                      \
         cudaError_t _status = (call);                                         \
@@ -17,99 +18,38 @@
         }                                                                     \
     } while (0)
 
-#pragma once
-#include <cuda_runtime.h>
-#include <cstdio>
-#include <mutex>
+#ifdef PROFILE1
+  #include <chrono>
+  #include <iostream>
 
-/* ------------------------------------------------------------------ */
-/* Simple error-check wrapper                                          */
-#define CUDA_CHECK(x)  do {                                           \
-    cudaError_t _err = (x);                                           \
-    if (_err != cudaSuccess) {                                        \
-        fprintf(stderr,"CUDA error %s (%d) at %s:%d\n",               \
-                cudaGetErrorString(_err), _err, __FILE__, __LINE__);  \
-        std::exit(1);                                                 \
-    }                                                                 \
-} while (0)
+  // ------------------------------------------------------------------
+  // 1. mark the beginning of the timed section
+  // ------------------------------------------------------------------
+  #define TIMER_START(tag)                                               \
+      auto _t_##tag##_start = std::chrono::steady_clock::now()
 
-/* ------------------------------------------------------------------ */
-/* Three global work streams                                           */
-/* inline  ⇒ one definition across all translation units (C++17)       */
-#if CUDART_VERSION >= 11020
-  inline cudaStream_t gStreamA = nullptr;
-  inline cudaStream_t gStreamB = nullptr;
-  inline cudaStream_t gStreamC = nullptr;
-#else
-  /* Toolkit < 11.2 – streams unused but keep the symbols */
-  inline cudaStream_t gStreamA = nullptr;
-  inline cudaStream_t gStreamB = nullptr;
-  inline cudaStream_t gStreamC = nullptr;
-#endif
+  // ------------------------------------------------------------------
+  // 2. mark the end of the timed section – stores the elapsed time
+  //    (does *not* print)
+  // ------------------------------------------------------------------
+  #define TIMER_STOP(tag)                                                \
+      auto _t_##tag##_elapsed =                                          \
+          std::chrono::duration<double, std::milli>(                     \
+              std::chrono::steady_clock::now() - _t_##tag##_start)
 
-/* ------------------------------------------------------------------ */
-/* create / destroy helpers                                            */
-inline void createWorkStreams()
-{
-#if CUDART_VERSION >= 11020
-    static std::once_flag once;
-    std::call_once(once, []{
-        CUDA_CHECK( cudaStreamCreateWithFlags(&gStreamA,
-                                              cudaStreamNonBlocking) );
-        CUDA_CHECK( cudaStreamCreateWithFlags(&gStreamB,
-                                              cudaStreamNonBlocking) );
-        CUDA_CHECK( cudaStreamCreateWithFlags(&gStreamC,
-                                              cudaStreamNonBlocking) );
-    });
-#endif
-}
+  // ------------------------------------------------------------------
+  // 3. print the elapsed time that was computed by TIMER_STOP
+  // ------------------------------------------------------------------
+  #define TIMER_PRINT(tag, msg)                                          \
+      std::cout << (msg) << ": " << _t_##tag##_elapsed.count() << " ms\n"
 
-inline void destroyWorkStreams()
-{
-#if CUDART_VERSION >= 11020
-    if (gStreamA) { CUDA_CHECK(cudaStreamDestroy(gStreamA)); gStreamA=nullptr; }
-    if (gStreamB) { CUDA_CHECK(cudaStreamDestroy(gStreamB)); gStreamB=nullptr; }
-    if (gStreamC) { CUDA_CHECK(cudaStreamDestroy(gStreamC)); gStreamC=nullptr; }
-#endif
-}
+#else   // -------------------------------------------------------------
 
-/* ------------------------------------------------------------------ */
-/* Helper macros – async if CUDA ≥ 11.2, legacy otherwise              */
-#if CUDART_VERSION >= 11020    /* async allocator available ---------- */
+  /* no-op versions so the code still compiles and optimises away */
+  #define TIMER_START(tag)
+  #define TIMER_STOP(tag)
+  #define TIMER_PRINT(tag, msg)
 
-  #define DEV_MALLOC_A(ptr,bytes)  do { createWorkStreams();           \
-      CUDA_CHECK(cudaMallocAsync((void**)(ptr), (bytes), gStreamA)); } while (0)
-  #define DEV_FREE_A(ptr)          CUDA_CHECK(cudaFreeAsync((ptr), gStreamA))
-  #define MEMSET_A(ptr,val,bytes)  CUDA_CHECK(cudaMemsetAsync((ptr), (val), (bytes), gStreamA))
-  #define MEMCPY_A(dst,src,bytes,kind) CUDA_CHECK(cudaMemcpyAsync((dst), (src), (bytes), (kind), gStreamA))
-
-  #define DEV_MALLOC_B(ptr,bytes)  do { createWorkStreams();           \
-      CUDA_CHECK(cudaMallocAsync((void**)(ptr), (bytes), gStreamB)); } while (0)
-  #define DEV_FREE_B(ptr)          CUDA_CHECK(cudaFreeAsync((ptr), gStreamB))
-  #define MEMSET_B(ptr,val,bytes)  CUDA_CHECK(cudaMemsetAsync((ptr), (val), (bytes), gStreamB))
-  #define MEMCPY_B(dst,src,bytes,kind) CUDA_CHECK(cudaMemcpyAsync((dst), (src), (bytes), (kind), gStreamB))
-
-  #define DEV_MALLOC_C(ptr,bytes)  do { createWorkStreams();           \
-      CUDA_CHECK(cudaMallocAsync((void**)(ptr), (bytes), gStreamC)); } while (0)
-  #define DEV_FREE_C(ptr)          CUDA_CHECK(cudaFreeAsync((ptr), gStreamC))
-  #define MEMSET_C(ptr,val,bytes)  CUDA_CHECK(cudaMemsetAsync((ptr), (val), (bytes), gStreamC))
-  #define MEMCPY_C(dst,src,bytes,kind) CUDA_CHECK(cudaMemcpyAsync((dst), (src), (bytes), (kind), gStreamC))
-
-#else                           /* toolkit < 11.2 : legacy fallback --- */
-  #define DEV_MALLOC_A(ptr,bytes) CUDA_CHECK(cudaMalloc((void**)(ptr), (bytes)))
-  #define DEV_FREE_A(ptr)         CUDA_CHECK(cudaFree((ptr)))
-  #define MEMSET_A(ptr,val,bytes) CUDA_CHECK(cudaMemset((ptr), (val), (bytes)))
-  #define MEMCPY_A(dst,src,bytes,kind) CUDA_CHECK(cudaMemcpy((dst), (src), (bytes), (kind)))
-
-  #define DEV_MALLOC_B(ptr,bytes) DEV_MALLOC_A(ptr,bytes)
-  #define DEV_FREE_B(ptr)         DEV_FREE_A(ptr)
-  #define MEMSET_B(ptr,val,bytes) MEMSET_A(ptr,val,bytes)
-  #define MEMCPY_B(dst,src,bytes,kind) MEMCPY_A(dst,src,bytes,kind)
-
-  #define DEV_MALLOC_C(ptr,bytes) DEV_MALLOC_A(ptr,bytes)
-  #define DEV_FREE_C(ptr)         DEV_FREE_A(ptr)
-  #define MEMSET_C(ptr,val,bytes) MEMSET_A(ptr,val,bytes)
-  #define MEMCPY_C(dst,src,bytes,kind) MEMCPY_A(dst,src,bytes,kind)
 #endif
 
 void warmupfunction();

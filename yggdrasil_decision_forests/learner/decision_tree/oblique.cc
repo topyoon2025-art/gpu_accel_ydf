@@ -61,6 +61,7 @@
 #include "yggdrasil_decision_forests/learner/decision_tree/randomprojection.hpp"
 #include "absl/flags/flag.h"
 #include "absl/flags/declare.h"
+
 ABSL_DECLARE_FLAG(int, computation_method);
 ABSL_DECLARE_FLAG(int, GPU_usage);
 
@@ -273,13 +274,13 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     std::vector<std::vector<int>> projection_col_idx;//Stores column indices per projection for GPU function
     std::vector<std::vector<float>> projection_weights;//Stores weights per column per projection for GPU function
     std::vector<Projection> current_projections;
-    std::chrono::duration<double, std::milli> sample_duration;
+    
     if (use_GPU == 1 ) {
       CUDA_CHECK(cudaGetLastError()); // Check for any errors during initialization
       ///////////////////////////////////////////////////////////////////////////////////////
       
       ///Get CPU Sample and Apply Projections Loop///////////////////////////////////////
-      auto startSample = clock::now();
+      TIMER_START3(SampleProjections);
       for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
           int8_t monotonic = 0;
           SampleProjection(config_link.numerical_features(), dt_config,
@@ -297,8 +298,10 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
               }        
           }
       } 
-      auto endSample = clock::now();
-      sample_duration = endSample - startSample;
+      TIMER_STOP3(SampleProjections);
+      #ifdef ALL_TIMES_OBLIQUE
+        TIMER_PRINT3(SampleProjections, "Sample Projection Time taken");
+      #endif
     }
   //   ///////////////////////////////////////////////////////////////////////////////////////
   
@@ -434,7 +437,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
     ///////////////////////////////GPU Apply Projections Loop///////////////////////////////////////
     
-    auto startApply = clock::now();
+    TIMER_START3(ApplyProjections);
     bool verbose = false; 
     double elapsed_apply_time = 0.0;
     float* d_min_vals = nullptr;
@@ -455,16 +458,18 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                             &elapsed_apply_time,
                             split_method, 
                             verbose);
-    auto endApplyProj = clock::now();
-    std::chrono::duration<double, std::milli> applyproj_duration = endApplyProj - startApply;
+    TIMER_STOP3(ApplyProjections);
+    #ifdef ALL_TIMES_OBLIQUE
+      TIMER_PRINT3(ApplyProjections, "GPU Apply Projection Time taken");
+    #endif
+
     
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    auto startTotal = clock::now();
     if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH || 
         dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_RANDOM) {
 
-        auto startHistogram = clock::now(); 
+        TIMER_START3(HistogramTotal);
 
         std::vector<float> h_min_vals(num_proj);
         std::vector<float> h_max_vals(num_proj);
@@ -478,9 +483,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         const int num_bins = dt_config.numerical_split().num_candidates(); // YDF convention
         const int ydf_bins = num_bins + 1;// YDF convention
         
-        std::chrono::duration<double, std::milli> random_hist_duration;
+        
         if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_RANDOM) {
-          auto startRandomHistogram = clock::now();
+          TIMER_START3(RandomHistogram);
           auto &rng = *random;                 // reference to the engine
           RandomHistogram(d_col_add_projected, //attributes
                           d_selected_examples, //selected examples
@@ -496,14 +501,15 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                           num_proj,
                           rng
                           );
-          auto endRandomHistogram = clock::now();
-          random_hist_duration = endRandomHistogram - startRandomHistogram;
+          TIMER_STOP3(RandomHistogram);
+          #ifdef ALL_TIMES_OBLIQUE
+            TIMER_PRINT3(RandomHistogram, "GPU Random Histogram Build Time taken");
+          #endif
         }
 
     /////////////////////Equal Width Histogram Split Evaluation on GPU//////////////////////////
-        std::chrono::duration<double, std::milli> equal_width_hist_duration;
         if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
-          auto startEqualWidthHistogram = clock::now();
+          TIMER_START3(EqualWidthHistogram);
           EqualWidthHistogram(d_col_add_projected, 
                               d_selected_examples,
                               yggdrasil_decision_forests::dataset::d_global_labels_data,
@@ -519,14 +525,16 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                               ydf_bins,
                               num_proj
                               );
-          auto endEqualWidthHistogram = clock::now();
-          equal_width_hist_duration = endEqualWidthHistogram - startEqualWidthHistogram;
+          TIMER_STOP3(EqualWidthHistogram);
+          #ifdef ALL_TIMES_OBLIQUE
+            TIMER_PRINT3(EqualWidthHistogram, "GPU Equal Width Histogram Build Time taken");
+          #endif
         }
 
       
       /////////////////////////Histogram Split Evaluation///////////////////////////
 
-        auto startSplitEval = clock::now();
+        TIMER_START3(HistogramSplit);
         int h_best_bin_out = -1;  
         float h_best_threshold_out = NAN;
         float h_best_gain_out = -INFINITY;
@@ -552,29 +560,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                   verbose,
                   comp_method,  // Evaluate splits from histograms
                   split_method);
+        TIMER_STOP3(HistogramSplit);
 
-
-        cudaEvent_t e0,e1;  cudaEventCreate(&e0); cudaEventCreate(&e1);
-        cudaEventRecord(e0);
-        cudaDeviceSynchronize();                       // explicit wait
-        cudaEventRecord(e1); cudaEventSynchronize(e1);
-        float sync_ms; cudaEventElapsedTime(&sync_ms, e0, e1);
-        printf("Explicit sync   : %.3f ms\n", sync_ms);
-
-        cudaEventRecord(e0);
-        
-        CUDA_CHECK(cudaFree(d_max_vals));    
-        CUDA_CHECK(cudaFree(d_min_vals));
-        CUDA_CHECK(cudaFree(d_prefix_0));
-        CUDA_CHECK(cudaFree(d_prefix_1));
-        CUDA_CHECK(cudaFree(d_prefix_2));
-
-        cudaEventRecord(e1); cudaEventSynchronize(e1);
-        float free_ms; cudaEventElapsedTime(&free_ms, e0, e1);
-        printf("Pure cudaFree   : %.3f ms\n", free_ms);
-        auto endSplitEval = clock::now();
-        std::chrono::duration<double, std::milli> split_eval_duration = endSplitEval - startSplitEval;
-        
         if (h_best_gain_out > 0.0f) {  
             best_projection = current_projections[best_proj];
             best_threshold = h_best_threshold_out;
@@ -593,36 +580,44 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         // LOG(INFO) << "\n"
         // << "Best condition selected GPU:\n"
         // << best_condition->DebugString();
-      auto endHistogram = clock::now();
-      std::chrono::duration<double, std::milli> histogram_duration = endHistogram - startHistogram;
+      TIMER_STOP3(HistogramTotal);
 
-      std::cout << "Sample Projection Time taken: " << sample_duration.count() << " ms" << std::endl;
-      std::cout << "GPU Apply Projection Total Time taken: " << applyproj_duration.count() << " ms\n";
-      if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
-        std::cout << "GPU Equal Width Histogram Build Time taken: " << equal_width_hist_duration.count() << " ms\n";
-      }
-      else {
-        std::cout << "GPU Random Histogram Build Time taken: " << random_hist_duration.count() << " ms\n";
-      }
-      std::cout << "GPU Histogram Split Time taken: " << split_eval_duration.count() << " ms\n";
-      std::cout << "GPU Histogram Build + Split Total Time taken: " << histogram_duration.count() << " ms\n";
+      // cudaEvent_t e0,e1;  cudaEventCreate(&e0); cudaEventCreate(&e1);
+      // cudaEventRecord(e0);
+      // cudaDeviceSynchronize();                       // explicit wait
+      // cudaEventRecord(e1); cudaEventSynchronize(e1);
+      // float sync_ms; cudaEventElapsedTime(&sync_ms, e0, e1);
+      // printf("Explicit sync   : %.3f ms\n", sync_ms);
+
+      // cudaEventRecord(e0);
+      CUDA_CHECK(cudaFree(d_max_vals));    
+      CUDA_CHECK(cudaFree(d_min_vals));
+      CUDA_CHECK(cudaFree(d_prefix_0));
+      CUDA_CHECK(cudaFree(d_prefix_1));
+      CUDA_CHECK(cudaFree(d_prefix_2));
+      // cudaEventRecord(e1); cudaEventSynchronize(e1);
+      // float free_ms; cudaEventElapsedTime(&free_ms, e0, e1);
+      // printf("Pure cudaFree   : %.3f ms\n", free_ms);
+      #ifdef ALL_TIMES_OBLIQUE
+        TIMER_PRINT3(HistogramSplit, "GPU Histogram Split Time taken");
+      #endif
+      TIMER_PRINT3(HistogramTotal, "GPU Total Time taken");
     }
  
     
     /////////////////////////////////Exact Split Evaluation on GPU//////////////////////////////////////////
     if (dt_config.numerical_split().type() == proto::NumericalSplit::EXACT) {
 
-        auto startExact = clock::now();
+        TIMER_START3(exact);
 
         //Sort projected values and row indices through d_col_add_projected and d_selected_examples
-        auto startSort = clock::now();
+        TIMER_START3(sort);
         unsigned int* d_row_ids = nullptr;
         CUDA_CHECK(cudaMalloc(&d_row_ids, num_rows * num_proj * sizeof(unsigned int)));
         ThrustSortIndicesOnly(d_col_add_projected, d_row_ids, d_selected_examples, selected_examples.size(), projection_col_idx.size()); 
-        auto endSort = clock::now();
-        std::chrono::duration<double, std::milli> sort_duration = endSort - startSort;
+        TIMER_STOP3(sort);
         
-        auto startSplit = clock::now();
+        TIMER_START3(split);
         int h_best_split_out = -1;
         float h_best_threshold_out = NAN;
         float h_best_gain_out = -INFINITY;
@@ -642,8 +637,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                     verbose,
                     comp_method
                     );
-        auto endSplit = clock::now();
-        std::chrono::duration<double, std::milli> split_duration = endSplit - startSplit;
+        TIMER_STOP3(split);
+
         
         if (h_best_gain_out > 0.0f) {               
             best_projection = current_projections[best_proj];
@@ -665,16 +660,15 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         //       << "Best condition selected GPU Exact:\n"
         //       << best_condition->DebugString();
 
-      auto endExact = clock::now();
-      std::chrono::duration<double, std::milli> exact_duration = endExact - startExact;
+      TIMER_STOP3(exact);
+      #ifdef ALL_TIMES_OBLIQUE
+        TIMER_PRINT3(sort, "GPU Exact Sort Time taken");
+        TIMER_PRINT3(split, "GPU Exact Split Time taken");
+      #endif
+      TIMER_PRINT3(exact, "GPU Total Time taken");
 
-      std::cout << "GPU Exact Sort Time taken: " << sort_duration.count() << " ms\n";
-      std::cout << "GPU Exact Split Time taken: " << split_duration.count() << " ms\n";
-      std::cout << "GPU Exact Sort + Split Total Time taken: " << exact_duration.count() << " ms\n";
+
     }
-    auto endTotal = clock::now();
-    std::chrono::duration<double, std::milli> total_duration = endTotal - startTotal;
-    std::cout << "GPU Total Time taken: " << total_duration.count() << " ms\n";
   }
 ////////////////////////////////////////////////////////////////////////////////////
 
