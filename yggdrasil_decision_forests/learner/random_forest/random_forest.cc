@@ -676,7 +676,7 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
         {
           utils::concurrency::ThreadPool pool(deployment().num_threads(), {.name_prefix = std::string("TrainRF")});
 
-
+          //Actual start of training
           pool.StartWorkers();
           for (int tree_idx = 0; tree_idx < rf_config.num_trees(); tree_idx++) {
             
@@ -791,12 +791,18 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                   if (vector_sequence_computer)
                     { internal_config.vector_sequence_computer = vector_sequence_computer.get(); }
 
-                  // Ariel: Training starts here
+                  // Ariel: Training starts here ACTUALLY?
+                  //Start
+                  auto train_start = std::chrono::steady_clock::now();
                   auto status_train = decision_tree::Train(
                       train_dataset, selected_examples, config_with_default, config_link,
                       rf_config.decision_tree(), deployment(), weights, &random,
                       decision_tree.get(), internal_config
                     );
+                  auto train_end = std::chrono::steady_clock::now();
+                   std::chrono::duration<double, std::milli> train_duration = train_end - train_start;
+                   std::cout << "Tree " << tree_idx << " training time: " << train_duration.count() << " ms" << std::endl;
+
 
                   start = std::chrono::high_resolution_clock::now();
 
@@ -986,7 +992,7 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
         }
 
         // Print all Timing info after done MultiThreading
-        #ifdef CHRONO_ENABLED
+        #ifdef CHRONO_ENABLED // part by Ariel
         using namespace yggdrasil_decision_forests::chrono_prof;
 
         for (int t = 0; t < static_cast<int>(time_ns().size()); ++t) {
