@@ -56,7 +56,7 @@ ABSL_FLAG(int, max_num_projections, 1000,
           "Maximum number of projections for oblique splits.");
 ABSL_FLAG(float, projection_density_factor, 1.5f,
           "Projection density factor.");
-ABSL_FLAG(float, num_projections_exponent, .5,
+ABSL_FLAG(float, num_projections_exponent, 1,
           "Exponent to determine number of projections.");
 
 // Hao uses GlobalBestFirst

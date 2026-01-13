@@ -245,7 +245,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     // Launch CUDA kernel
     dim3 blockDim(256);
     dim3 gridDim((num_selected_examples + blockDim.x - 1) / blockDim.x, num_proj);
-    
+  
     if (split_method == 0) { //Exact
         TIMER_START(ExactCAKernel);    
         ColumnAddProjectionKernel<<<gridDim, blockDim>>>(d_flat_data,
