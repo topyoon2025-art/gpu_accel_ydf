@@ -239,6 +239,7 @@ Install NVIDIA GeForce Game Ready or NVIDIA RTX Quadro Windows 11 display driver
 
 ## NCU 
 	Enable developer settings from Nvidia Control Panel
+	Manage GPU Performance Counter: Allow access to the GPU performance counters to all users
 	/usr/local/cuda-13.1/bin/ncu --nvtx -o /home/ubuntu/projects/results/output.ncu-rep bazel-bin/examples/train_oblique_forest --input_mode csv --max_num_projections 100 --num_trees 1 --label_col target --numerical_split_type 'Equal Width' --num_threads 1 --tree_depth 2 --train_csv /home/ubuntu/projects/dataset/10000000x100.csv --GPU_usage 1 
 	QT_SCALE_FACTOR=2 ncu-ui
 
