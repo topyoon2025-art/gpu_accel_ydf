@@ -197,18 +197,20 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                         col_per_proj.end(),             // last (exclusive)
                         offset.begin() + 1);    
     }
-  
+    printf("Offsets Total: %d\n", offset.back());
+
     ////////////////////////////////////////////////////////////////////////  
 
     //////////////////////calculate total size for flattening///////////////////////////
-    size_t total_size = 0;
+    // size_t total_size = 0;
 
-    total_size = std::accumulate(
-    projection_col_idx.begin(), projection_col_idx.end(), std::size_t{0},
-    [](std::size_t sum, const auto& v) { return sum + v.size(); }); // Accumulate total size
-
+    // total_size = std::accumulate(
+    // projection_col_idx.begin(), projection_col_idx.end(), std::size_t{0},
+    // [](std::size_t sum, const auto& v) { return sum + v.size(); }); // Accumulate total size
+    // printf("Total Size: %zu\n", total_size);
     //////////////////////////////////////////////////////////////////////////////////////
 
+    int total_size = offset.back();
     ///////////////////////copy and flatten projection data structures///////////////////////////
     std::vector<int> flat_projection_col_idx(total_size);
 
@@ -245,7 +247,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     // Launch CUDA kernel
     dim3 blockDim(256);
     dim3 gridDim((num_selected_examples + blockDim.x - 1) / blockDim.x, num_proj);
-  
+    
     if (split_method == 0) { //Exact
         TIMER_START(ExactCAKernel);    
         ColumnAddProjectionKernel<<<gridDim, blockDim>>>(d_flat_data,
