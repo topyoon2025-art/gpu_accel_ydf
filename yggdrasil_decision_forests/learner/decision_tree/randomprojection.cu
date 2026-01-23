@@ -197,7 +197,6 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                         col_per_proj.end(),             // last (exclusive)
                         offset.begin() + 1);    
     }
-    printf("Offsets Total: %d\n", offset.back());
 
     ////////////////////////////////////////////////////////////////////////  
 
@@ -411,20 +410,24 @@ __global__ void BuildHistogramEqualWidthKernel(
         float val   = d_attributes[col_offset + tid];      
         unsigned int   label = d_labels[d_row_indices[tid]];
      
-        int bin = (val >= d_max_vals[proj_id] - 0.5 * d_bin_widths [proj_id]) //Assign to last bin if val is equal to max_val - 0.5*bin_width
-                  ? (num_bins - 1)
-                  : round((val - d_min_vals[proj_id]) / d_bin_widths[proj_id]);//have total num_bins
+        // int bin = (val >= d_max_vals[proj_id] - 0.5 * d_bin_widths [proj_id]) //Assign to last bin if val is equal to max_val - 0.5*bin_width
+        //           ? (num_bins - 1)
+        //           : round((val - d_min_vals[proj_id]) / d_bin_widths[proj_id]);//have total num_bins
+
+        // int bin = min(__float2int_rn((val - d_min_vals[proj_id]) / d_bin_widths[proj_id]), num_bins - 1);
+        int bin = __float2int_rn((val - d_min_vals[proj_id]) / d_bin_widths[proj_id]);
 
 
-        if (label == 1) {
-            atomicAdd(&shared_mem[num_bins + bin], 1); 
-        } 
-        else if (label == 2) {
-            atomicAdd(&shared_mem[2 * (num_bins) + bin], 1);
-        }
-        else {
-            atomicAdd(&shared_mem[bin], 1);
-        }
+        // if (label == 1) {
+        //     atomicAdd(&shared_mem[num_bins + bin], 1); 
+        // } 
+        // else if (label == 2) {
+        //     atomicAdd(&shared_mem[2 * (num_bins) + bin], 1);
+        // }
+        // else {
+        //     atomicAdd(&shared_mem[bin], 1);
+        // }
+        atomicAdd(&shared_mem[label * (num_bins) + bin], 1);
     }
     __syncthreads();
 
@@ -464,20 +467,22 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     
     TIMER_START(EWBinning);
     std::vector<float> h_bin_widths(num_proj);
+    float inv_bins = 1.0f / (float)(num_bins - 1);
     for (int proj_id = 0; proj_id < num_proj; ++proj_id) {
         float min_val = h_min_vals[proj_id];
         float max_val = h_max_vals[proj_id];
         float bin_width = (max_val > min_val)
-                                ? (max_val - min_val) / (float)(num_bins - 1)
+                                ? (max_val - min_val) * inv_bins
                                 : 1.0f;
-        h_bin_widths[proj_id] = bin_width;
+        h_bin_widths[proj_id] = bin_width + 1e-6f; //Add small epsilon to avoid division by zero
     }
     CUDA_CHECK(cudaMemcpy(d_bin_widths, h_bin_widths.data(), num_proj * sizeof(float), cudaMemcpyHostToDevice)); 
 
 
+
     const int BLOCK = 256;
     //////////////////////////Allocate Device Memory/////////////////////////////////////////
-    // auto startAlloc = std::chrono::high_resolution_clock::now();
+    // auto startAlloc = std::chrono::steady_clock::now();
     int* d_hist_class0;
     int* d_hist_class1;
     int* d_hist_class2;
@@ -491,7 +496,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     
     ///////////////////////BuildHistogramEqualWidthKernel/////////////////////////////////////////
  
-    //auto startHist = std::chrono::high_resolution_clock::now();
+    //auto startHist = std::chrono::steady_clock::now();
     int threads_per_block_hist = num_bins;
     //printf("threads_per_block_hist: %d\n", threads_per_block_hist);
     int num_elements_per_thread = 1;
@@ -641,15 +646,16 @@ __global__ void BuildHistogramRandomKernel(
         int bin = cub::LowerBound(candidate_splits_proj, bounds, val);
         //int bin = lower_bound_naive_device(candidate_splits_proj, bounds, val);
 
-        if (label == 1) {
-            atomicAdd(&shared_mem[num_bins + bin], 1); 
-        } 
-        else if (label == 2) {
-            atomicAdd(&shared_mem[2 * (num_bins) + bin], 1);
-        }
-        else {
-            atomicAdd(&shared_mem[bin], 1);
-        }
+        // if (label == 1) {
+        //     atomicAdd(&shared_mem[num_bins + bin], 1); 
+        // } 
+        // else if (label == 2) {
+        //     atomicAdd(&shared_mem[2 * (num_bins) + bin], 1);
+        // }
+        // else {
+        //     atomicAdd(&shared_mem[bin], 1);
+        // }
+        atomicAdd(&shared_mem[label * (num_bins) + bin], 1);
     }
     __syncthreads();
 
@@ -747,14 +753,11 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * (ydf_bins) * sizeof(int)));
         ///////////////////////BuildHistogramEqualWidthKernel/////////////////////////////////////////
         
-        //auto startHist = std::chrono::high_resolution_clock::now();
+        //auto startHist = std::chrono::steady_clock::now();
         int threads_per_block_hist = ydf_bins;
-        //printf("threads_per_block_hist: %d\n", threads_per_block_hist);
         int num_elements_per_thread = 1;
         int blocks_per_grid_hist = (num_rows/num_elements_per_thread + threads_per_block_hist - 1) / threads_per_block_hist;
-        //printf("blocks_per_grid_hist: %d\n", blocks_per_grid_hist);
         dim3 grid_hist(blocks_per_grid_hist, num_proj); //single dimension grid/projection
-        //printf("grid_hist: (%d, %d)\n", grid_hist.x, grid_hist.y);
         int sharedMemSize = 3 * (ydf_bins) * sizeof(int); // For Hist 0, Hist 1, and Hist 2
         BuildHistogramRandomKernel<BLOCK><<<grid_hist, threads_per_block_hist, sharedMemSize>>>
                                                                     (d_col_add_projected, d_selected_examples, d_global_labels_data,
