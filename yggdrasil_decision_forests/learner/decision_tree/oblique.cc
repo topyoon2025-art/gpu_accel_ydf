@@ -464,10 +464,10 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     #endif
 
     
-
+    const auto split_type = dt_config.numerical_split().type();
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH || 
-        dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_RANDOM) {
+    if (split_type == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH || 
+        split_type == proto::NumericalSplit::HISTOGRAM_RANDOM) {
 
         TIMER_START3(HistogramTotal);
 
@@ -484,7 +484,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         const int ydf_bins = num_bins + 1;// YDF convention
         
         
-        if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_RANDOM) {
+        if (split_type == proto::NumericalSplit::HISTOGRAM_RANDOM) {
           TIMER_START3(RandomHistogram);
           auto &rng = *random;                 // reference to the engine
           RandomHistogram(d_col_add_projected, //attributes
@@ -508,7 +508,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         }
 
     /////////////////////Equal Width Histogram Split Evaluation on GPU//////////////////////////
-        if (dt_config.numerical_split().type() == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
+        if (split_type == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
           TIMER_START3(EqualWidthHistogram);
           EqualWidthHistogram(d_col_add_projected, 
                               d_selected_examples,

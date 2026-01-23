@@ -15,13 +15,13 @@ OUTDIR="/home/ubuntu/projects/results"
 
 mkdir -p "$OUTDIR"
 
-CSV_FILE="$OUTDIR/results.csv"
+CSV_FILE="$OUTDIR/results$(basename "$DATASET" .csv).csv"
 
 # Write CSV header
 echo "gpu_usage,split_type,num_runs,valid_runs,avg_ms" > "$CSV_FILE"
 
-GPU_USAGES=(0 1)
-SPLITS=("Equal Width" "Random" "Exact")
+GPU_USAGES=(1)
+SPLITS=("Random" "Equal Width")
 
 # Robust extractor: only extract the number AFTER the colon/equals
 extract_time() {
