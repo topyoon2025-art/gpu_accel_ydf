@@ -10,7 +10,7 @@ fi
 RUNS="$1"
 
 BINARY="./bazel-bin/examples/train_oblique_forest"
-DATASET="/home/ubuntu/projects/dataset/1048576x100.csv"
+DATASET="/home/ubuntu/projects/dataset/10000000x100.csv"
 OUTDIR="/home/ubuntu/projects/results"
 
 mkdir -p "$OUTDIR"
