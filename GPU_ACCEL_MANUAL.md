@@ -235,7 +235,9 @@ Install NVIDIA GeForce Game Ready or NVIDIA RTX Quadro Windows 11 display driver
 	git pull origin main  
 	git push origin main  
 	git restore "files"  
-	git branch  
+	git branch 
+	git fetch origin
+	git reset --hard origin/main 
 
 ## NCU 
 	For WSL from Windows.
