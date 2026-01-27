@@ -25,20 +25,20 @@ echo "dataset,numerical_split_type,run_gpu_accel,num_runs,valid_runs,avg_ms" > "
 
 # All configurations requested
 SPLITS=(
-    "Dynamic Equal Width Histogram"
+    # "Dynamic Equal Width Histogram"
     "Dynamic Random Histogram"
-    "Dynamic Equal Width Histogram"
+    # "Dynamic Equal Width Histogram"
     "Dynamic Random Histogram"
-    "Equal Width"
+    # "Equal Width"
     "Random"
 )
 
 GPU_ACCEL=(
+    # true
     true
-    true
+    # false
     false
-    false
-    false
+    # false
     false
 )
 
