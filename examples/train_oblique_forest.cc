@@ -77,7 +77,7 @@ ABSL_FLAG(uint32_t, seed, 1234,
 // Histogram-based splits - Updated to match Yggdrasil implementation
 ABSL_FLAG(std::string, numerical_split_type, "Exact",
           "Type of histogram splitting: 'Exact (no histogramming)', 'Random', 'Equal Width', 'Subsample Points', 'Subsample Histogram', 'Dynamic Random Histogram' or 'Dynamic Equal Width Histogram.");
-ABSL_FLAG(int, histogram_num_bins, 255,
+ABSL_FLAG(int, histogram_num_bins, 256,
           "Number of bins for histogram splitting.");
 
 ABSL_FLAG(int, computation_method, 0,

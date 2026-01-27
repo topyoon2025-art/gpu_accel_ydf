@@ -535,9 +535,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         int* d_prefix_1 = nullptr;
         int* d_prefix_2 = nullptr;
         float* d_candidate_splits = nullptr;
-        const int num_bins = dt_config.numerical_split().num_candidates(); // YDF convention
-        const int ydf_bins = num_bins + 1;// YDF convention
-        
+        int num_bins = dt_config.numerical_split().num_candidates(); // YDF convention
         
         if (GPU_Random) {
           TIMER_START3(RandomHistogram);
@@ -577,7 +575,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                               &d_prefix_1,
                               &d_prefix_2,
                               num_rows,
-                              ydf_bins,
+                              num_bins + 1,
                               num_proj
                               );
           TIMER_STOP3(EqualWidthHistogram);
@@ -597,6 +595,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         int best_proj = -1;
         double elapsed_ms = 0.0;
         bool verbose = false;
+        if (GPU_EW) {
+          num_bins += 1; // EW uses num_bins + 1 bins
+        }
         HistogramSplit(d_prefix_2, //From YDF convention, Label 2 == 0
                   d_prefix_1, //From YDF convention, Label 1 == 1
                   d_prefix_0, //From YDF convention, Label 0 == 2
@@ -604,7 +605,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                   h_min_vals.data(),
                   d_bin_widths,
                   num_proj,
-                  ydf_bins,
+                  num_bins,
                   num_rows,
                   &best_proj,
                   &h_best_bin_out,

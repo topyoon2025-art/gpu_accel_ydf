@@ -675,15 +675,15 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
     {
         TIMER_START(RandomBinning);
         ///////////////////////Generate Random Candidate Splits/////////////////////////////////////////
-        std::vector<float> candidate_splits(num_bins * num_proj);
+        std::vector<float> candidate_splits((num_bins - 1) * num_proj);
         //Generate random candidate splits per projection on host
         for (int p = 0; p < num_proj; ++p)
         {
             float min_val = h_min_vals[p];
             float max_val = h_max_vals[p];
-            int base_idx = p * num_bins;
+            int base_idx = p * (num_bins - 1);
             std::uniform_real_distribution<float> threshold_distribution(min_val, max_val);
-            for (int b = 0; b < num_bins; ++b)
+            for (int b = 0; b < num_bins - 1; ++b)
             {
                 candidate_splits[base_idx + b] = threshold_distribution(random);
             }
@@ -694,13 +694,13 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         thrust::device_vector<float> d_candidate_splits(candidate_splits.begin(), candidate_splits.end());
         thrust::device_vector<int> d_offsets(num_proj + 1);
         float* d_sorted_candidate_splits = nullptr;
-        CUDA_CHECK(cudaMalloc(&d_sorted_candidate_splits, sizeof(float) * num_proj * num_bins));
+        CUDA_CHECK(cudaMalloc(&d_sorted_candidate_splits, sizeof(float) * num_proj * (num_bins - 1)));
 
         thrust::sequence(
             d_offsets.begin(),
             d_offsets.end(),
             0,
-            num_bins);   // [0, num_bins, 2*num_bins, ...]
+            num_bins - 1);   // [0, num_bins, 2*num_bins, ...]
 
         size_t temp_bytes = 0;
 
@@ -709,7 +709,7 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
             temp_bytes,                   // output: required temp storage
             d_candidate_splits.data().get(), // keys in
             d_sorted_candidate_splits, // keys out (in-place)
-            num_proj * num_bins,           // total number of keys
+            num_proj * (num_bins - 1),           // total number of keys
             num_proj,                      // number of segments
             d_offsets.data().get(),        // segment begin offsets
             d_offsets.data().get() + 1     // segment end offsets
@@ -722,7 +722,7 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
             temp_bytes,
             d_candidate_splits.data().get(),
             d_sorted_candidate_splits,
-            num_proj * num_bins,
+            num_proj * (num_bins - 1),
             num_proj,
             d_offsets.data().get(),
             d_offsets.data().get() + 1
@@ -734,25 +734,25 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         int* d_hist_class0;
         int* d_hist_class1;
         int* d_hist_class2;
-        int ydf_bins = num_bins + 1; //YDF uses num_bins + 1 for candidate splits
-        CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * (ydf_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMalloc(&d_hist_class1, num_proj * (ydf_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMalloc(&d_hist_class2, num_proj * (ydf_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * (ydf_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_hist_class1, 0, num_proj * (ydf_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * (ydf_bins) * sizeof(int)));
+        
+        CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * (num_bins) * sizeof(int)));
+        CUDA_CHECK(cudaMalloc(&d_hist_class1, num_proj * (num_bins) * sizeof(int)));
+        CUDA_CHECK(cudaMalloc(&d_hist_class2, num_proj * (num_bins) * sizeof(int)));
+        CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * (num_bins) * sizeof(int)));
+        CUDA_CHECK(cudaMemset(d_hist_class1, 0, num_proj * (num_bins) * sizeof(int)));
+        CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * (num_bins) * sizeof(int)));
         ///////////////////////BuildHistogramEqualWidthKernel/////////////////////////////////////////
         
         //auto startHist = std::chrono::steady_clock::now();
-        int threads_per_block_hist = ydf_bins;
+        int threads_per_block_hist = num_bins;
         int num_elements_per_thread = 1;
         int blocks_per_grid_hist = (num_rows/num_elements_per_thread + threads_per_block_hist - 1) / threads_per_block_hist;
         dim3 grid_hist(blocks_per_grid_hist, num_proj); //single dimension grid/projection
-        int sharedMemSize = 3 * (ydf_bins) * sizeof(int); // For Hist 0, Hist 1, and Hist 2
+        int sharedMemSize = 3 * (num_bins) * sizeof(int); // For Hist 0, Hist 1, and Hist 2
         BuildHistogramRandomKernel<BLOCK><<<grid_hist, threads_per_block_hist, sharedMemSize>>>
                                                                     (d_col_add_projected, d_selected_examples, d_global_labels_data,
                                                                         d_hist_class0, d_hist_class1, d_hist_class2,
-                                                                    num_rows, num_proj, ydf_bins, d_sorted_candidate_splits);
+                                                                    num_rows, num_proj, num_bins, d_sorted_candidate_splits);
         CUDA_CHECK(cudaPeekAtLastError());
         CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -760,7 +760,7 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
 
         ///////////////////////Inclusive Scan per projection per class/////////////////////////////////////////
         TIMER_START(RandomInclusiveScan);
-        int total_rows = (ydf_bins) * num_proj;
+        int total_rows = (num_bins) * num_proj;
 
         int* d_prefix_2;
         int* d_prefix_1;
@@ -773,7 +773,7 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
 
         auto counting_begin = thrust::make_counting_iterator<int>(0);
-        auto keys_begin = thrust::make_transform_iterator(counting_begin, index_to_proj{num_bins + 1});
+        auto keys_begin = thrust::make_transform_iterator(counting_begin, index_to_proj{num_bins});
 
         auto d_hist_class2_ptr   = thrust::device_pointer_cast(d_hist_class2);        // input Negative class
         auto d_prefix_2_ptr = thrust::device_pointer_cast(d_prefix_2);  // output
