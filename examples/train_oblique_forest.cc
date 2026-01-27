@@ -44,7 +44,7 @@ ABSL_FLAG(std::string, model_out_dir, "",
           "Path to output trained model directory (optional)."
           " If empty, model is not saved.");
 ABSL_FLAG(int, num_threads, 1, "Number of threads to use.");
-ABSL_FLAG(int, num_trees, 1000, "Number of trees in the random forest.");
+ABSL_FLAG(int, num_trees, 1, "Number of trees in the random forest.");
 ABSL_FLAG(int, tree_depth, -1,
           "Maximum depth of trees (-1 for unlimited).");
 
@@ -83,8 +83,8 @@ ABSL_FLAG(int, histogram_num_bins, 255,
 ABSL_FLAG(int, computation_method, 0,
           "Computation method, 0 for Entropy and 1 for Gini.");
 
-ABSL_FLAG(int, GPU_usage, 1,
-          "Whether to use GPU for computation (0 for CPU, 1 for GPU).");
+ABSL_FLAG(bool, run_gpu_accel, false,
+          "Whether to use GPU for computation (false for CPU, true for GPU).");
 
 using namespace yggdrasil_decision_forests;
 

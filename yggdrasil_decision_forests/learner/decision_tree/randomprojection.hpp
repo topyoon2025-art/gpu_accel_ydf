@@ -66,7 +66,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                                 const int num_proj, //num_proj
                                 const int train_dataset,
                                 double* elapsed_ms,
-                                const int split_method,
+                                const int gpu_mode, //0: Exact, 1: Random, 2: Equal Width
                                 const bool verbose
                               );
 
@@ -118,7 +118,7 @@ void HistogramSplit (const int* d_hist_class0,
                     double* elapsed_ms,
                     bool verbose,
                     const int comp_method,
-                    const int split_method
+                    const int gpu_mode
                     );
 
 void ThrustSortIndicesOnly(float* d_proj_values, 

@@ -169,11 +169,14 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                                 const int num_proj, //num_proj
                                 const int num_total_rows,
                                 double* elapsed_apply_ms,
-                                const int gpu_mode, //0: Exact, 1: Random, 2: Equal Width
+                                const int split_method, //0: Exact, 1: Random, 2: Equal Width
                                 const bool verbose
                               )
 {
+
+    CUDA_CHECK(cudaGetLastError()); 
     ////////////////////////Data Preparation for col per projection on Host///////////////////////////
+
     int result_size = num_selected_examples * num_proj;
     const int P = static_cast<int>(projection_col_idx.size());
     std::vector<int> col_per_proj(P); //Number of columns per projection
@@ -196,6 +199,15 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     }
 
     ////////////////////////////////////////////////////////////////////////  
+
+    //////////////////////calculate total size for flattening///////////////////////////
+    // size_t total_size = 0;
+
+    // total_size = std::accumulate(
+    // projection_col_idx.begin(), projection_col_idx.end(), std::size_t{0},
+    // [](std::size_t sum, const auto& v) { return sum + v.size(); }); // Accumulate total size
+    // printf("Total Size: %zu\n", total_size);
+    //////////////////////////////////////////////////////////////////////////////////////
 
     int total_size = offset.back();
     ///////////////////////copy and flatten projection data structures///////////////////////////
@@ -235,7 +247,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     dim3 blockDim(256);
     dim3 gridDim((num_selected_examples + blockDim.x - 1) / blockDim.x, num_proj);
     
-    if (gpu_mode == 0) { //Exact
+    if (split_method == 0) { //Exact
         TIMER_START(ExactCAKernel);    
         ColumnAddProjectionKernel<<<gridDim, blockDim>>>(d_flat_data,
                                                         d_selected_examples,
@@ -251,7 +263,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
         TIMER_STOP(ExactCAKernel);
         TIMER_PRINT(ExactCAKernel, "GPU Exact Column Add Kernel Time taken");
     }
-    else if (gpu_mode == 2 || gpu_mode == 1) { // Equal Width or Random
+    else if (split_method == 2 || split_method == 1) { // Equal Width or Random
         TIMER_START(HistogramCombinedKernel);
         const int total_blocks = num_proj * gridDim.x;
         float* d_min_vals;
@@ -286,7 +298,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
         CUDA_CHECK(cudaPeekAtLastError());
         CUDA_CHECK(cudaDeviceSynchronize()); //It blocks the CPU until the device has completed all preceding requested tasks.
         TIMER_STOP(CombinedKernel);
-
+        
         TIMER_START(ReduceMinMax);
         thrust::device_vector<int> d_begin(num_proj);
         thrust::device_vector<int> d_end(num_proj);
@@ -343,8 +355,6 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
             d_end_ptr,
             stream1
         );
-        CUDA_CHECK(cudaPeekAtLastError());
-        
         CUDA_CHECK(cudaDeviceSynchronize()); //It blocks the CPU until the device has completed all preceding requested tasks.
         CUDA_CHECK(cudaStreamDestroy(stream0));
         CUDA_CHECK(cudaStreamDestroy(stream1));
@@ -867,14 +877,14 @@ __global__ void FindBestGiniSplitKernel(
 
     // Only evaluate splits between bins, not after the last bin
     if (proj_id >= num_proj) return;
-    if (bin_id >= num_bins) return;
+    if (bin_id >= num_bins - 1) return;
 
     int base_idx = proj_id * num_bins;
 
     // Compute total class counts (redundantly across threads)
     // Total class is same for all projections
-    int total_class0 = hist_class0[ (num_bins - 1) ]; // last bin holds total count
-    int total_class1 = hist_class1[ (num_bins - 1) ]; // last bin holds total count
+    int total_class0 = hist_class0[ base_idx + num_bins - 1 ]; // last bin holds total count
+    int total_class1 = hist_class1[ base_idx + num_bins - 1 ]; // last bin holds total count
     
     // Compute left class counts for this split point
     int left_class0 = hist_class0[ base_idx + bin_id ]; // hist already cumulative
@@ -885,11 +895,6 @@ __global__ void FindBestGiniSplitKernel(
 
     int left_total  = left_class0 + left_class1;
     int right_total = right_class0 + right_class1;
-
-    if (left_total == 0 || right_total == 0) {
-        gini_out_per_bin_per_proj[base_idx + bin_id] = -INFINITY;
-        return;
-    }
 
     float gini_left = gini(left_class1, left_class0);
     float gini_right = gini(right_class1, right_class0);
@@ -904,10 +909,15 @@ __global__ void FindBestGiniSplitKernel(
 
     float left_weight = float(left_total) / float(total);
     float right_weight = float(right_total) / float(total);
+
     float gini_gain = gini_parent - (left_weight * gini_left + right_weight * gini_right);
 
     // Store per-thread result in global memory
     // just index it right so it can store the result for each bin per projection
+    if (left_total == 0 || right_total == 0) {
+        gini_out_per_bin_per_proj[base_idx + bin_id] = -INFINITY;
+        return;
+    }
     gini_out_per_bin_per_proj[base_idx + bin_id] = gini_gain;
 }
 
@@ -942,11 +952,6 @@ __global__ void FindBestEntropySplitKernel(
 
     int left_total  = left_class0 + left_class1;
     int right_total = right_class0 + right_class1;
-
-    if (left_total == 0 || right_total == 0) {
-        entropy_out_per_bin_per_proj[base_idx + bin_id] = -INFINITY;
-        return;
-    }
     
     float entropy_left = entropy(left_class1, left_class0);
     float entropy_right = entropy(right_class1, right_class0);
@@ -967,6 +972,9 @@ __global__ void FindBestEntropySplitKernel(
     entropy_out_per_bin_per_proj[base_idx + bin_id] = entropy_gain;
 }
 
+
+
+
 void HistogramSplit (const int* d_prefix_0,
                       const int* d_prefix_1,
                       const int* d_prefix_2,
@@ -984,7 +992,7 @@ void HistogramSplit (const int* d_prefix_0,
                       double* elapsed_ms,
                       const bool verbose,
                       const int comp_method, //0: entropy, 1: gini
-                      const int gpu_mode
+                      const int split_method
                     )
 {
     TIMER_START(HistogramSplitEvaluation);
@@ -1041,6 +1049,7 @@ void HistogramSplit (const int* d_prefix_0,
         *best_gain_out = h_out1.value;
         // Calculate best bin
         *best_bin_out = h_out1.key - (*best_proj * num_bins);
+        printf("Best proj: %d, Best bin: %d, Best gain: %f\n", *best_proj, *best_bin_out, *best_gain_out);
 
         //Calculate number of positive examples in the node after split
         int total_count_0, total_count_1, left_count_0, left_count_1;
@@ -1049,8 +1058,9 @@ void HistogramSplit (const int* d_prefix_0,
         CUDA_CHECK(cudaMemcpy(&left_count_0, d_prefix_0 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
         CUDA_CHECK(cudaMemcpy(&left_count_1, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
         *num_pos_examples_out = total_count_0 + total_count_1 - left_count_0 - left_count_1;
+
        
-        if (gpu_mode == 1) { //Random
+        if (split_method == 1) { //Random
             float best_threshold;
             int index = (*best_proj) * (num_bins - 1) + (*best_bin_out);
             CUDA_CHECK(cudaMemcpy(&best_threshold, d_candidate_splits + index, sizeof(float), cudaMemcpyDeviceToHost));
@@ -1058,7 +1068,7 @@ void HistogramSplit (const int* d_prefix_0,
             CUDA_CHECK(cudaFree((void *)d_candidate_splits));
         }
 
-        if (gpu_mode == 2) { //Equal Width
+        if (split_method == 2) { //Equal Width
             float bin_width;
             CUDA_CHECK(cudaMemcpy(&bin_width, d_bin_widths + *best_proj, sizeof(float), cudaMemcpyDeviceToHost));
             *best_threshold_out = (*best_bin_out + 0.5) * bin_width + h_min_vals[*best_proj];  
