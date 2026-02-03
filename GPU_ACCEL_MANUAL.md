@@ -245,6 +245,21 @@ Install NVIDIA GeForce Game Ready or NVIDIA RTX Quadro Windows 11 display driver
 	Manage GPU Performance Counter: Allow access to the GPU performance counters to all users
 	/usr/local/cuda-13.1/bin/ncu --nvtx -o /home/ubuntu/projects/results/output.ncu-rep bazel-bin/examples/train_oblique_forest --input_mode csv --max_num_projections 100 --num_trees 1 --label_col target --numerical_split_type 'Equal Width' --num_threads 1 --tree_depth 2 --train_csv /home/ubuntu/projects/dataset/10000000x100.csv --GPU_usage 1 
 	QT_SCALE_FACTOR=2  /usr/local/cuda-13.1/bin/ncu-ui
+	Nsight Compute CLI: ncu --set full --export report.ncu-rep -- ./your_binary --args
+	Nsight Systems CLI: nsys profile -t cuda,osrt,nvtx -o report ./your_binary --args
+	sudo apt-get update
+	sudo apt-get install -y \
+		libxcb-cursor0 \
+		libxcb-icccm4 \
+		libxcb-image0 \
+		libxcb-keysyms1 \
+		libxcb-render-util0 \
+		libxkbcommon-x11-0
+
+	sudo apt-get install -y xvfb
+	Xvfb :1 -screen 0 1920x1080x24 > /dev/null 2>&1 &
+	export DISPLAY=:1
+
 
 	For Linux
 	Just use sudo

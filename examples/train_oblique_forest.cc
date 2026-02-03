@@ -43,8 +43,8 @@ ABSL_FLAG(std::string, label_col, "Cancer Status",
 ABSL_FLAG(std::string, model_out_dir, "",
           "Path to output trained model directory (optional)."
           " If empty, model is not saved.");
-ABSL_FLAG(int, num_threads, 1, "Number of threads to use.");
-ABSL_FLAG(int, num_trees, 1, "Number of trees in the random forest.");
+ABSL_FLAG(int, num_threads, -1, "Number of threads to use.");
+ABSL_FLAG(int, num_trees, 1000, "Number of trees in the random forest.");
 ABSL_FLAG(int, tree_depth, -1,
           "Maximum depth of trees (-1 for unlimited).");
 
@@ -455,7 +455,7 @@ int main(int argc, char** argv) {
   cudaFree(yggdrasil_decision_forests::dataset::d_global_flat_data);
   auto end = std::chrono::steady_clock::now();
   std::chrono::duration<double, std::milli> dur = end - start;
-  //std::cout << "Training time: " << dur.count() << " ms\n";
+  std::cout << "Wall time: " << dur.count() << " ms\n";
 
   // 4) Save model if requested
   const std::string out_dir = absl::GetFlag(FLAGS_model_out_dir);

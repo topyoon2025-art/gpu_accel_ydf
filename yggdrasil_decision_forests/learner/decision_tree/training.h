@@ -44,6 +44,7 @@
 #include "yggdrasil_decision_forests/utils/concurrency_streamprocessor.h"
 #include "yggdrasil_decision_forests/utils/distribution.h"
 #include "yggdrasil_decision_forests/utils/random.h"
+#include <cuda_runtime.h>
 
 namespace yggdrasil_decision_forests::model::decision_tree {
 
@@ -164,6 +165,7 @@ struct SplitterWorkRequest {
   // If not -1, search for oblique split. In this case "attribute_idx" should be
   // -1.
   int num_oblique_projections_to_run;
+  cudaStream_t cuda_stream;
 
   // Copy is not allowed.
   SplitterWorkRequest(SplitterWorkManagerData manager_data,
@@ -171,14 +173,16 @@ struct SplitterWorkRequest {
                       SplitterPerThreadCache* splitter_cache,
                       SplitterWorkRequestCommon* common,
                       utils::RandomEngine::result_type seed,
-                      int num_oblique_projections_to_run)
+                      int num_oblique_projections_to_run,
+                      cudaStream_t cuda_stream)
       : manager_data(manager_data),
         best_score(best_score),
         attribute_idx(attribute_idx),
         splitter_cache(splitter_cache),
         common(common),
         seed(seed),
-        num_oblique_projections_to_run(num_oblique_projections_to_run) {}
+        num_oblique_projections_to_run(num_oblique_projections_to_run),
+        cuda_stream(cuda_stream) {}
   SplitterWorkRequest(const SplitterWorkRequest&) = delete;
   SplitterWorkRequest& operator=(const SplitterWorkRequest&) = delete;
   SplitterWorkRequest(SplitterWorkRequest&&) = default;
@@ -286,7 +290,8 @@ absl::StatusOr<bool> FindBestCondition(
     const SplitterConcurrencySetup& splitter_concurrency_setup,
     const proto::Node& parent, const InternalTrainConfig& internal_config,
     const NodeConstraints& constraints, proto::NodeCondition* best_condition,
-    utils::RandomEngine* random, PerThreadCache* cache);
+    utils::RandomEngine* random, PerThreadCache* cache,
+    cudaStream_t cuda_stream = 0);
 
 // Following are the method to handle multithreading in FindBestCondition.
 // =============================================================================
@@ -304,7 +309,8 @@ absl::StatusOr<bool> FindBestConditionManager(
     const proto::Node& parent, const InternalTrainConfig& internal_config,
     const LabelStats& label_stats, const NodeConstraints& constraints,
     proto::NodeCondition* best_condition, utils::RandomEngine* random,
-    PerThreadCache* cache);
+    PerThreadCache* cache,
+    cudaStream_t cuda_stream = 0);
 
 // Single thread search for conditions.
 absl::StatusOr<bool> FindBestConditionSingleThreadManager(
@@ -317,7 +323,8 @@ absl::StatusOr<bool> FindBestConditionSingleThreadManager(
     const proto::Node& parent, const InternalTrainConfig& internal_config,
     const LabelStats& label_stats, const NodeConstraints& constraints,
     proto::NodeCondition* best_condition, utils::RandomEngine* random,
-    PerThreadCache* cache);
+    PerThreadCache* cache,
+    cudaStream_t cuda_stream = 0);
 
 // Multi-thread search for conditions.
 absl::StatusOr<bool> FindBestConditionConcurrentManager(
@@ -331,7 +338,8 @@ absl::StatusOr<bool> FindBestConditionConcurrentManager(
     const proto::Node& parent, const InternalTrainConfig& internal_config,
     const LabelStats& label_stats, const NodeConstraints& constraints,
     proto::NodeCondition* best_condition, utils::RandomEngine* random,
-    PerThreadCache* cache);
+    PerThreadCache* cache,
+    cudaStream_t cuda_stream = 0);
 
 // Starts the worker threads needed for "FindBestConditionConcurrentManager".
 absl::Status FindBestConditionStartWorkers(
@@ -844,7 +852,7 @@ absl::StatusOr<bool> FindBestConditionOblique(
     const LabelStats& label_stats,
     const std::optional<int>& override_num_projections,
     const NodeConstraints& constraints, proto::NodeCondition* best_condition,
-    utils::RandomEngine* random, SplitterPerThreadCache* cache);
+    utils::RandomEngine* random, SplitterPerThreadCache* cache, cudaStream_t cuda_stream = 0);
 
 // End of the FindBestCondition specialization.
 // =============================================================================
@@ -891,7 +899,8 @@ absl::Status GrowTreeBestFirstGlobal(
     const InternalTrainConfig& internal_config, NodeWithChildren* root,
     utils::RandomEngine* random,
     SelectedExamplesRollingBuffer selected_examples,
-    std::optional<SelectedExamplesRollingBuffer> leaf_examples);
+    std::optional<SelectedExamplesRollingBuffer> leaf_examples,
+    cudaStream_t stream = 0);
 
 // The core training logic that is the same between single-threaded execution
 // and concurrent execution.
@@ -912,7 +921,8 @@ absl::Status DecisionTreeCoreTrain(
     const std::vector<float>& weights, utils::RandomEngine* random,
     const InternalTrainConfig& internal_config, DecisionTree* dt,
     absl::Span<UnsignedExampleIdx> selected_examples,
-    std::optional<absl::Span<UnsignedExampleIdx>> leaf_examples);
+    std::optional<absl::Span<UnsignedExampleIdx>> leaf_examples,
+    cudaStream_t stream = 0);
 
 // Train the tree. Fails if the tree is not empty.
 absl::Status DecisionTreeTrain(
@@ -924,7 +934,8 @@ absl::Status DecisionTreeTrain(
     const model::proto::DeploymentConfig& deployment,
     const std::vector<float>& weights, utils::RandomEngine* random,
     DecisionTree* dt,
-    const InternalTrainConfig& internal_config = InternalTrainConfig());
+    const InternalTrainConfig& internal_config = InternalTrainConfig(),
+    cudaStream_t stream = 0);
 constexpr auto Train = DecisionTreeTrain;
 
 // Train a node and its children.
@@ -940,7 +951,8 @@ absl::Status NodeTrain(
     const NodeConstraints& constraints, bool set_leaf_already_set,
     NodeWithChildren* node, utils::RandomEngine* random, PerThreadCache* cache,
     SelectedExamplesRollingBuffer selected_examples,
-    std::optional<SelectedExamplesRollingBuffer> leaf_examples);
+    std::optional<SelectedExamplesRollingBuffer> leaf_examples,
+    cudaStream_t stream = 0);
 
 // Set the default values of the hyper-parameters.
 void SetDefaultHyperParameters(proto::DecisionTreeTrainingConfig* config);

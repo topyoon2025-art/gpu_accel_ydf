@@ -162,7 +162,7 @@ int GetNumProjections(const proto::DecisionTreeTrainingConfig& dt_config,
   const int target_num_projections =
       0.5 + std::ceil(std::pow(
                 num_numerical_features,
-                dt_config.sparse_oblique_split().num_projections_exponent()));
+                dt_config.sparse_oblique_split().num_projections_exponent())) * 1.5;
 
   return std::max(std::min(target_num_projections, max_num_projections),
                   min_num_projections);
@@ -184,7 +184,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     const NodeConstraints& constraints,
     proto::NodeCondition* best_condition,
     utils::RandomEngine* random,
-    SplitterPerThreadCache* cache) {
+    SplitterPerThreadCache* cache,
+    cudaStream_t cuda_stream) {
 
   /* #region Initializations */
 
@@ -202,8 +203,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       : GetNumProjections(dt_config, config_link.numerical_features_size());
 
   const float projection_density =
-      dt_config.sparse_oblique_split().projection_density_factor() /
-      config_link.numerical_features_size();
+      std::clamp(dt_config.sparse_oblique_split().projection_density_factor() /
+                     config_link.numerical_features_size(),
+                 0.f, 1.f);
 
   ProjectionEvaluator projection_evaluator(train_dataset,
                                            config_link.numerical_features());
@@ -254,22 +256,22 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   if (gpu_accel) {
     if (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM) {
-      if (dense_example_idxs.size() >= 650) {
-        GPU_Random = true;
-        gpu_mode = 1; // GPU Random
-      } else if (dense_example_idxs.size() >= 350) {
-        gpu_mode = -1; // CPU
-      } else {
-        dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
-        gpu_mode = -1; // CPU
-      }
-      // if (dense_example_idxs.size() >= 350) {
+      // if (dense_example_idxs.size() >= 650) {
       //   GPU_Random = true;
       //   gpu_mode = 1; // GPU Random
+      // } else if (dense_example_idxs.size() >= 350) {
+      //   gpu_mode = -1; // CPU
       // } else {
       //   dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
       //   gpu_mode = -1; // CPU
       // }
+      if (dense_example_idxs.size() >= 1350) {
+        GPU_Random = true;
+        gpu_mode = 1; // GPU Random
+      } else {
+        dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
+        gpu_mode = -1; // CPU
+      }
     }
     else if (proto_type == proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM) {
       if (dense_example_idxs.size() >= 2600) {
@@ -335,7 +337,6 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     std::vector<Projection> current_projections;
     
     if ((gpu_mode >= 0) && (GPU_EW || GPU_Random || GPU_Exact)) {
-      CUDA_CHECK(cudaGetLastError()); // Check for any errors during initialization
       CUDA_CHECK(cudaPeekAtLastError());  
       ///////////////////////////////////////////////////////////////////////////////////////
       
@@ -489,9 +490,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     const int num_total_rows = train_dataset.nrow();
     const int num_rows = selected_examples.size();
 
-    CUDA_CHECK(cudaMalloc(&d_selected_examples, selected_examples.size() * sizeof(unsigned int)));
-    CUDA_CHECK(cudaMemcpy(d_selected_examples, selected_examples.data(), selected_examples.size() * sizeof(unsigned int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMalloc(&d_col_add_projected, selected_examples.size() * projection_col_idx.size() * sizeof(float))); //num_rows * num_proj
+    CUDA_CHECK(cudaMallocAsync(&d_selected_examples, selected_examples.size() * sizeof(unsigned int), cuda_stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_selected_examples, selected_examples.data(), selected_examples.size() * sizeof(unsigned int), cudaMemcpyHostToDevice, cuda_stream));
+    CUDA_CHECK(cudaMallocAsync(&d_col_add_projected, selected_examples.size() * projection_col_idx.size() * sizeof(float), cuda_stream)); //num_rows * num_proj
     //////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -516,7 +517,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                             num_total_rows,
                             &elapsed_apply_time,
                             gpu_mode, //0: Exact, 1: Random, 2: Equal Width
-                            verbose);
+                            verbose,
+                            cuda_stream
+                            );
     TIMER_STOP3(ApplyProjections);
     #ifdef ALL_TIMES_OBLIQUE
       TIMER_PRINT3(ApplyProjections, "GPU Apply Projection Time taken");
@@ -528,8 +531,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         TIMER_START3(HistogramTotal);
         std::vector<float> h_min_vals(num_proj);
         std::vector<float> h_max_vals(num_proj);
-        CUDA_CHECK(cudaMemcpy(h_min_vals.data(), d_min_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(h_max_vals.data(), d_max_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost));  
+        CUDA_CHECK(cudaMemcpyAsync(h_min_vals.data(), d_min_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost, cuda_stream));
+        CUDA_CHECK(cudaMemcpyAsync(h_max_vals.data(), d_max_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost, cuda_stream));  
 
         int* d_prefix_0 = nullptr;
         int* d_prefix_1 = nullptr;
@@ -552,7 +555,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                           num_rows, //selected_examples.size()
                           num_bins,
                           num_proj,
-                          rng
+                          rng,
+                          cuda_stream
                           );
           TIMER_STOP3(RandomHistogram);
           #ifdef ALL_TIMES_OBLIQUE
@@ -576,7 +580,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                               &d_prefix_2,
                               num_rows,
                               num_bins + 1,
-                              num_proj
+                              num_proj,
+                              cuda_stream
                               );
           TIMER_STOP3(EqualWidthHistogram);
           #ifdef ALL_TIMES_OBLIQUE
@@ -615,7 +620,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                   &elapsed_ms,
                   verbose,
                   comp_method,  // Evaluate splits from histograms
-                  gpu_mode     //0: Exact, 1: Random, 2: Equal Width
+                  gpu_mode,     //0: Exact, 1: Random, 2: Equal Width
+                  cuda_stream
                   );
         TIMER_STOP3(HistogramSplit);
 
@@ -647,11 +653,11 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       // printf("Explicit sync   : %.3f ms\n", sync_ms);
 
       // cudaEventRecord(e0);
-      CUDA_CHECK(cudaFree(d_max_vals));    
-      CUDA_CHECK(cudaFree(d_min_vals));
-      CUDA_CHECK(cudaFree(d_prefix_0));
-      CUDA_CHECK(cudaFree(d_prefix_1));
-      CUDA_CHECK(cudaFree(d_prefix_2));
+      CUDA_CHECK(cudaFreeAsync(d_max_vals, cuda_stream));    
+      CUDA_CHECK(cudaFreeAsync(d_min_vals, cuda_stream));
+      CUDA_CHECK(cudaFreeAsync(d_prefix_0, cuda_stream));
+      CUDA_CHECK(cudaFreeAsync(d_prefix_1, cuda_stream));
+      CUDA_CHECK(cudaFreeAsync(d_prefix_2, cuda_stream));
       // cudaEventRecord(e1); cudaEventSynchronize(e1);
       // float free_ms; cudaEventElapsedTime(&free_ms, e0, e1);
       // printf("Pure cudaFree   : %.3f ms\n", free_ms);
@@ -670,7 +676,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         //Sort projected values and row indices through d_col_add_projected and d_selected_examples
         TIMER_START3(sort);
         unsigned int* d_row_ids = nullptr;
-        CUDA_CHECK(cudaMalloc(&d_row_ids, num_rows * num_proj * sizeof(unsigned int)));
+        CUDA_CHECK(cudaMallocAsync(&d_row_ids, num_rows * num_proj * sizeof(unsigned int), cuda_stream));
         ThrustSortIndicesOnly(d_col_add_projected, d_row_ids, d_selected_examples, selected_examples.size(), projection_col_idx.size()); 
         TIMER_STOP3(sort);
         
@@ -692,7 +698,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                     d_col_add_projected,
                     &elapsed_ms,
                     verbose,
-                    comp_method
+                    comp_method,
+                    cuda_stream
                     );
         TIMER_STOP3(split);
 
@@ -1221,14 +1228,15 @@ absl::StatusOr<bool> FindBestConditionOblique(
     const ClassificationLabelStats& label_stats,
     const std::optional<int>& override_num_projections,
     proto::NodeCondition* best_condition, utils::RandomEngine* random,
-    SplitterPerThreadCache* cache) {
+    SplitterPerThreadCache* cache,
+    cudaStream_t cuda_stream) {
   switch (dt_config.split_axis_case()) {
     case proto::DecisionTreeTrainingConfig::kSparseObliqueSplit:
       // a.k.a SPORF
       return FindBestConditionSparseObliqueTemplate<ClassificationLabelStats>(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, parent, internal_config, label_stats,
-          override_num_projections, {}, best_condition, random, cache);
+          override_num_projections, {}, best_condition, random, cache, cuda_stream);
     case proto::DecisionTreeTrainingConfig::kMhldObliqueSplit:
       return FindBestConditionMHLDObliqueTemplate<ClassificationLabelStats>(
           train_dataset, selected_examples, weights, config, config_link,
@@ -1251,14 +1259,14 @@ absl::StatusOr<bool> FindBestConditionOblique(
     const RegressionHessianLabelStats& label_stats,
     const std::optional<int>& override_num_projections,
     const NodeConstraints& constraints, proto::NodeCondition* best_condition,
-    utils::RandomEngine* random, SplitterPerThreadCache* cache) {
+    utils::RandomEngine* random, SplitterPerThreadCache* cache, cudaStream_t cuda_stream) {
   switch (dt_config.split_axis_case()) {
     case proto::DecisionTreeTrainingConfig::kSparseObliqueSplit:
       return FindBestConditionSparseObliqueTemplate<
           RegressionHessianLabelStats>(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, parent, internal_config, label_stats,
-          override_num_projections, constraints, best_condition, random, cache);
+          override_num_projections, constraints, best_condition, random, cache, cuda_stream);
     case proto::DecisionTreeTrainingConfig::kMhldObliqueSplit:
       return FindBestConditionMHLDObliqueTemplate<RegressionHessianLabelStats>(
           train_dataset, selected_examples, weights, config, config_link,
@@ -1281,13 +1289,13 @@ absl::StatusOr<bool> FindBestConditionOblique(
     const RegressionLabelStats& label_stats,
     const std::optional<int>& override_num_projections,
     proto::NodeCondition* best_condition, utils::RandomEngine* random,
-    SplitterPerThreadCache* cache) {
+    SplitterPerThreadCache* cache, cudaStream_t cuda_stream) {
   switch (dt_config.split_axis_case()) {
     case proto::DecisionTreeTrainingConfig::kSparseObliqueSplit:
       return FindBestConditionSparseObliqueTemplate<RegressionLabelStats>(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, parent, internal_config, label_stats,
-          override_num_projections, {}, best_condition, random, cache);
+          override_num_projections, {}, best_condition, random, cache, cuda_stream);
     case proto::DecisionTreeTrainingConfig::kMhldObliqueSplit:
       return FindBestConditionMHLDObliqueTemplate<RegressionLabelStats>(
           train_dataset, selected_examples, weights, config, config_link,

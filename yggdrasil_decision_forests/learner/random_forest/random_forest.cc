@@ -673,6 +673,12 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
         #endif
 
         /****** #region FINALLY, START TRAINING ******/
+        // Jung: CUDA streams for each tree
+        std::vector<cudaStream_t> streams(rf_config.num_trees());
+        for (int i = 0; i < rf_config.num_trees(); ++i){
+          cudaStreamCreate(&streams[i]);
+        }
+
         {
           utils::concurrency::ThreadPool pool(deployment().num_threads(), {.name_prefix = std::string("TrainRF")});
 
@@ -794,14 +800,18 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                   // Ariel: Training starts here ACTUALLY?
                   //Start
                   auto train_start = std::chrono::steady_clock::now();
+
                   auto status_train = decision_tree::Train(
                       train_dataset, selected_examples, config_with_default, config_link,
                       rf_config.decision_tree(), deployment(), weights, &random,
-                      decision_tree.get(), internal_config
+                      decision_tree.get(), internal_config, streams[tree_idx]
                     );
+                  cudaStreamSynchronize(streams[tree_idx]);
+                  cudaStreamDestroy(streams[tree_idx]);
+                  
                   auto train_end = std::chrono::steady_clock::now();
-                   std::chrono::duration<double, std::milli> train_duration = train_end - train_start;
-                   std::cout << "Tree " << tree_idx << " training time: " << train_duration.count() << " ms" << std::endl;
+                  std::chrono::duration<double, std::milli> train_duration = train_end - train_start;
+                  std::cout << "Tree " << tree_idx << " training time: " << train_duration.count() << " ms" << std::endl;
 
 
                   start = std::chrono::high_resolution_clock::now();
@@ -986,10 +996,14 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                         << build_common_snippet() << build_common_snippet_extra();
                   } 
                   /* #endregion */
-                  }
-      );
+                  }); // pool.Schedule
           }
         }
+
+        /****** #endregion ******/
+        printf("Train tree pool joined\n");
+  
+
 
         // Print all Timing info after done MultiThreading
         #ifdef CHRONO_ENABLED // part by Ariel

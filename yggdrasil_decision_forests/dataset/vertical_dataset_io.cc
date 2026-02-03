@@ -106,8 +106,8 @@ absl::Status LoadVerticalDatasetSingleThread(
 
   TIMER_START0(data_prep_gpu);
   // Prepare data in a flat format for GPU
-  const int nrow = dataset->nrow();
-  const int ncol = dataset->ncol() - 1;  // exclude label column
+  const size_t nrow = dataset->nrow();
+  const size_t ncol = dataset->ncol() - 1;  // exclude label column
   std::vector<float> global_flat_data(nrow * ncol);
   // Use raw pointer for faster access
   float* flat_ptr = global_flat_data.data();

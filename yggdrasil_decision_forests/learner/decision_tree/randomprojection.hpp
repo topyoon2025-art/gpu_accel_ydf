@@ -67,7 +67,8 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                                 const int train_dataset,
                                 double* elapsed_ms,
                                 const int gpu_mode, //0: Exact, 1: Random, 2: Equal Width
-                                const bool verbose
+                                const bool verbose,
+                                cudaStream_t cuda_stream = 0
                               );
 
 void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attributes
@@ -83,7 +84,8 @@ int** h_hist1,
 int** h_hist2,
 const int num_rows, //selected_examples.size()
 const int num_bins,
-const int num_proj
+const int num_proj,
+cudaStream_t cuda_stream = 0
 );
 
 void RandomHistogram (const float* __restrict__ d_col_add_projected, //attributes
@@ -98,7 +100,8 @@ float** d_candidate_splits,
 const int num_rows, //selected_examples.size()
 const int num_bins,
 const int num_proj,
-std::mt19937& random
+std::mt19937& random,
+cudaStream_t cuda_stream = 0
 );
                     
 void HistogramSplit (const int* d_hist_class0,
@@ -118,14 +121,16 @@ void HistogramSplit (const int* d_hist_class0,
                     double* elapsed_ms,
                     bool verbose,
                     const int comp_method,
-                    const int gpu_mode
+                    const int gpu_mode,
+                    cudaStream_t cuda_stream = 0
                     );
 
 void ThrustSortIndicesOnly(float* d_proj_values, 
                           unsigned int* d_row_ids,
                           unsigned int* d_selected_examples, 
                           int num_rows, 
-                          int num_proj);
+                          int num_proj,
+                          cudaStream_t cuda_stream = 0);
 
 void ExactSplit(
     unsigned int* d_sorted_indices,  // [num_proj * num_rows]
@@ -139,6 +144,7 @@ void ExactSplit(
     float* d_col_add_projected,  // [num_proj * num_rows]
     double* elapsed_ms,
     bool verbose,
-    const int comp_method
+    const int comp_method,
+    cudaStream_t cuda_stream = 0
     );
 

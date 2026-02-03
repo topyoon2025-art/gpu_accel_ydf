@@ -63,7 +63,7 @@
 #include "absl/flags/declare.h"
 
 ABSL_DECLARE_FLAG(int, computation_method);
-ABSL_DECLARE_FLAG(int, GPU_usage);
+ABSL_DECLARE_FLAG(bool, run_gpu_accel);
 
 
 
@@ -162,7 +162,7 @@ int GetNumProjections(const proto::DecisionTreeTrainingConfig& dt_config,
   const int target_num_projections =
       0.5 + std::ceil(std::pow(
                 num_numerical_features,
-                dt_config.sparse_oblique_split().num_projections_exponent()));
+                dt_config.sparse_oblique_split().num_projections_exponent())) * 1.5;
 
   return std::max(std::min(target_num_projections, max_num_projections),
                   min_num_projections);
@@ -202,8 +202,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       : GetNumProjections(dt_config, config_link.numerical_features_size());
 
   const float projection_density =
-      dt_config.sparse_oblique_split().projection_density_factor() /
-      config_link.numerical_features_size();
+      std::clamp(dt_config.sparse_oblique_split().projection_density_factor() /
+                     config_link.numerical_features_size(),
+                 0.f, 1.f);
 
   ProjectionEvaluator projection_evaluator(train_dataset,
                                            config_link.numerical_features());
@@ -243,40 +244,100 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   // Automatically swap betw. Histogramming and Sorting based on which is faster for given amount of data
   // Magic number - chosen empirically https://docs.google.com/spreadsheets/d/1k0Td119py6Z_crJPdpt6iggWten86KRtYqSrQmcHhJM/edit?usp=sharing
-  if (dense_example_idxs.size() < 350
-    && (dt_config.numerical_split().type() == yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM
-  || dt_config.numerical_split().type() == yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM)
-) {
-    // Data is too small, making Histogramming inefficient. Switch to Exact
-    dynamic_dt_config.mutable_numerical_split()->set_type(yggdrasil_decision_forests::model::decision_tree::proto::NumericalSplit_Type_EXACT);
-  }
 
-  // std::cout << "Num Projections: " << num_projections << std::endl;
+  const int comp_method = absl::GetFlag(FLAGS_computation_method); //0-Entropy, 1-Gini, Option for GPU
+  const auto proto_type = static_cast<proto::NumericalSplit_Type>(dt_config.numerical_split().type());
+  const bool gpu_accel = absl::GetFlag(FLAGS_run_gpu_accel);
+  int gpu_mode = -1;          // <0  →  stay on CPU
+  bool GPU_Exact  = false;
+  bool GPU_Random = false;
+  bool GPU_EW     = false;
 
-  int use_GPU = 0; //0-CPU, 1-GPU
-  if (selected_examples.size() < 16384) {
-    use_GPU = 0; //Use CPU for small nodes);
+  if (gpu_accel) {
+    if (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM) {
+      if (dense_example_idxs.size() >= 650) {
+        GPU_Random = true;
+        gpu_mode = 1; // GPU Random
+      } else if (dense_example_idxs.size() >= 350) {
+        gpu_mode = -1; // CPU
+      } else {
+        dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
+        gpu_mode = -1; // CPU
+      }
+      // if (dense_example_idxs.size() >= 350) {
+      //   GPU_Random = true;
+      //   gpu_mode = 1; // GPU Random
+      // } else {
+      //   dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
+      //   gpu_mode = -1; // CPU
+      // }
+    }
+    else if (proto_type == proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM) {
+      if (dense_example_idxs.size() >= 2600) {
+        GPU_EW = true;
+        gpu_mode = 2; // GPU EW
+      } else if (dense_example_idxs.size() >= 350) {
+        gpu_mode = -1; // CPU
+      } else {
+        dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
+        gpu_mode = -1; // CPU
+      }
+      // if (dense_example_idxs.size() >= 350) {
+      //   GPU_EW = true;
+      //   gpu_mode = 2; // GPU EW
+      // } else {
+      //   dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
+      //   gpu_mode = -1; // CPU
+      // }
+    }
+    else if (proto_type == proto::NumericalSplit_Type_EXACT) {
+      GPU_Exact = true;
+      gpu_mode = 0; // GPU Exact
+    }
+    else if (proto_type == proto::NumericalSplit_Type_HISTOGRAM_RANDOM) {
+      GPU_Random = true;
+      gpu_mode = 1; // GPU Random
+    }
+    else if (proto_type == proto::NumericalSplit_Type_HISTOGRAM_EQUAL_WIDTH) {
+      GPU_EW = true;
+      gpu_mode = 2; // GPU EW
+    }
   }
   else {
-    use_GPU = 1; //Use GPU for large nodes
+    if (dense_example_idxs.size() < 350 &&
+    (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM ||
+    proto_type == proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM)) {
+      // Set to EXACT so that later calls to EvaluateProjection use the exact code
+      dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
+    }
   }
-  use_GPU = absl::GetFlag(FLAGS_GPU_usage);
+
+
+
+// ---------------------------------------------------------------------------
+
+
+// Convenience flags used later in the file
+
+
+// ---------------------------------------------------------------------------
+//  If we fell back to a CPU implementation but the original proto requested
+//  a histogram variant, the proto has to be patched so that the downstream
+//  code picks the right CPU path.
+// ---------------------------------------------------------------------------
+
+
+  
   using clock = std::chrono::steady_clock; 
   using d_milli = std::chrono::duration<double, std::milli>;
-
-  const int comp_method = absl::GetFlag(FLAGS_computation_method); //0-Entropy, 1-Gini
-    // if (comp_method == 0) {
-    //     LOG(INFO) << std::endl << "Using Entropy as comparison method";
-    // } else {
-    //     LOG(INFO) << std::endl << "Using Gini as comparison method";
-    // }
   
     std::vector<std::vector<int>> projection_col_idx;//Stores column indices per projection for GPU function
     std::vector<std::vector<float>> projection_weights;//Stores weights per column per projection for GPU function
     std::vector<Projection> current_projections;
     
-    if (use_GPU == 1 ) {
+    if ((gpu_mode >= 0) && (GPU_EW || GPU_Random || GPU_Exact)) {
       CUDA_CHECK(cudaGetLastError()); // Check for any errors during initialization
+      CUDA_CHECK(cudaPeekAtLastError());  
       ///////////////////////////////////////////////////////////////////////////////////////
       
       ///Get CPU Sample and Apply Projections Loop///////////////////////////////////////
@@ -367,7 +428,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
       /////////////////////////////////////////////////////////////////////////////////////
 
   /* #region ----------  MAIN LOOP  ------------------ */
-  if (use_GPU == 0 ) {
+  if (gpu_mode < 0) {
     for (int proj_idx = 0; proj_idx < num_projections; ++proj_idx) {
         int8_t monotonic = 0;
 
@@ -419,7 +480,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   /* #region update Best Threshold & Projection */
     //////////////////////////////////////////////////////////////////////////////////////////
-  if (use_GPU == 1) {
+  if ((gpu_mode >= 0) && (GPU_EW || GPU_Random || GPU_Exact)) {
     //// Important variables///////////////////
     UnsignedExampleIdx* d_selected_examples;
     float* d_col_add_projected = nullptr;
@@ -443,7 +504,6 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     float* d_min_vals = nullptr;
     float* d_max_vals = nullptr;
     float* d_bin_widths = nullptr;
-    int split_method = dt_config.numerical_split().type(); //0-Exact, 1-Equal Width Histogram
     ApplyProjectionColumnADD(yggdrasil_decision_forests::dataset::d_global_flat_data,
                             d_selected_examples,//selected examples indices
                             d_col_add_projected,
@@ -456,21 +516,17 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                             num_proj, 
                             num_total_rows,
                             &elapsed_apply_time,
-                            split_method, 
+                            gpu_mode, //0: Exact, 1: Random, 2: Equal Width
                             verbose);
     TIMER_STOP3(ApplyProjections);
     #ifdef ALL_TIMES_OBLIQUE
       TIMER_PRINT3(ApplyProjections, "GPU Apply Projection Time taken");
     #endif
 
-    
-    const auto split_type = dt_config.numerical_split().type();
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    if (split_type == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH || 
-        split_type == proto::NumericalSplit::HISTOGRAM_RANDOM) {
+    if (GPU_EW || GPU_Random) {
 
         TIMER_START3(HistogramTotal);
-
         std::vector<float> h_min_vals(num_proj);
         std::vector<float> h_max_vals(num_proj);
         CUDA_CHECK(cudaMemcpy(h_min_vals.data(), d_min_vals, num_proj * sizeof(float), cudaMemcpyDeviceToHost));
@@ -480,11 +536,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         int* d_prefix_1 = nullptr;
         int* d_prefix_2 = nullptr;
         float* d_candidate_splits = nullptr;
-        const int num_bins = dt_config.numerical_split().num_candidates(); // YDF convention
-        const int ydf_bins = num_bins + 1;// YDF convention
+        int num_bins = dt_config.numerical_split().num_candidates(); // YDF convention
         
-        
-        if (split_type == proto::NumericalSplit::HISTOGRAM_RANDOM) {
+        if (GPU_Random) {
           TIMER_START3(RandomHistogram);
           auto &rng = *random;                 // reference to the engine
           RandomHistogram(d_col_add_projected, //attributes
@@ -508,7 +562,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         }
 
     /////////////////////Equal Width Histogram Split Evaluation on GPU//////////////////////////
-        if (split_type == proto::NumericalSplit::HISTOGRAM_EQUAL_WIDTH) {
+        if (GPU_EW) {
           TIMER_START3(EqualWidthHistogram);
           EqualWidthHistogram(d_col_add_projected, 
                               d_selected_examples,
@@ -522,7 +576,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                               &d_prefix_1,
                               &d_prefix_2,
                               num_rows,
-                              ydf_bins,
+                              num_bins + 1,
                               num_proj
                               );
           TIMER_STOP3(EqualWidthHistogram);
@@ -542,6 +596,9 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         int best_proj = -1;
         double elapsed_ms = 0.0;
         bool verbose = false;
+        if (GPU_EW) {
+          num_bins += 1; // EW uses num_bins + 1 bins
+        }
         HistogramSplit(d_prefix_2, //From YDF convention, Label 2 == 0
                   d_prefix_1, //From YDF convention, Label 1 == 1
                   d_prefix_0, //From YDF convention, Label 0 == 2
@@ -549,7 +606,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                   h_min_vals.data(),
                   d_bin_widths,
                   num_proj,
-                  ydf_bins,
+                  num_bins,
                   num_rows,
                   &best_proj,
                   &h_best_bin_out,
@@ -559,7 +616,8 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
                   &elapsed_ms,
                   verbose,
                   comp_method,  // Evaluate splits from histograms
-                  split_method);
+                  gpu_mode     //0: Exact, 1: Random, 2: Equal Width
+                  );
         TIMER_STOP3(HistogramSplit);
 
         if (h_best_gain_out > 0.0f) {  
@@ -606,7 +664,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
  
     
     /////////////////////////////////Exact Split Evaluation on GPU//////////////////////////////////////////
-    if (dt_config.numerical_split().type() == proto::NumericalSplit::EXACT) {
+    if (GPU_Exact) {
 
         TIMER_START3(exact);
 
@@ -666,8 +724,6 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
         TIMER_PRINT3(split, "GPU Exact Split Time taken");
       #endif
       TIMER_PRINT3(exact, "GPU Total Time taken");
-
-
     }
   }
 ////////////////////////////////////////////////////////////////////////////////////

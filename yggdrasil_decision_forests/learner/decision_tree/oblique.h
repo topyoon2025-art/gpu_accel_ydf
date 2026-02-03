@@ -113,7 +113,7 @@ absl::StatusOr<bool> FindBestConditionOblique(
     const ClassificationLabelStats& label_stats,
     const std::optional<int>& override_num_projections,
     proto::NodeCondition* best_condition, utils::RandomEngine* random,
-    SplitterPerThreadCache* cache);
+    SplitterPerThreadCache* cache, cudaStream_t cuda_stream = 0);
 
 // Regression with hessian term.
 absl::StatusOr<bool> FindBestConditionOblique(
@@ -127,7 +127,7 @@ absl::StatusOr<bool> FindBestConditionOblique(
     const RegressionHessianLabelStats& label_stats,
     const std::optional<int>& override_num_projections,
     const NodeConstraints& constraints, proto::NodeCondition* best_condition,
-    utils::RandomEngine* random, SplitterPerThreadCache* cache);
+    utils::RandomEngine* random, SplitterPerThreadCache* cache, cudaStream_t cuda_stream = 0);
 
 // Regression.
 absl::StatusOr<bool> FindBestConditionOblique(
@@ -141,7 +141,7 @@ absl::StatusOr<bool> FindBestConditionOblique(
     const RegressionLabelStats& label_stats,
     const std::optional<int>& override_num_projections,
     proto::NodeCondition* best_condition, utils::RandomEngine* random,
-    SplitterPerThreadCache* cache);
+    SplitterPerThreadCache* cache, cudaStream_t cuda_stream = 0);
 
 // Computes the number of projections to test i.e.
 // num_projections = min(max_num_projections,

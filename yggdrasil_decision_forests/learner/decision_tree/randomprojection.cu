@@ -170,7 +170,8 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                                 const int num_total_rows,
                                 double* elapsed_apply_ms,
                                 const int gpu_mode, //0: Exact, 1: Random, 2: Equal Width
-                                const bool verbose
+                                const bool verbose,
+                                cudaStream_t cuda_stream
                               )
 {
     ////////////////////////Data Preparation for col per projection on Host///////////////////////////
@@ -224,12 +225,12 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     int* d_offset = nullptr; 
     int* d_flat_projection_col_idx = nullptr;
     float* d_flat_projection_weights = nullptr;
-    CUDA_CHECK(cudaMalloc((void **)&d_offset, offset.size() * sizeof(int)));
-    CUDA_CHECK(cudaMalloc((void **)&d_flat_projection_col_idx, flat_projection_col_idx.size() * sizeof(int)));
-    CUDA_CHECK(cudaMalloc((void **)&d_flat_projection_weights, flat_projection_weights.size() * sizeof(float)));
-    CUDA_CHECK(cudaMemcpy(d_offset, offset.data(), offset.size() * sizeof(int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_flat_projection_col_idx, flat_projection_col_idx.data(), flat_projection_col_idx.size() * sizeof(int), cudaMemcpyHostToDevice));    
-    CUDA_CHECK(cudaMemcpy(d_flat_projection_weights, flat_projection_weights.data(), flat_projection_weights.size() * sizeof(float), cudaMemcpyHostToDevice));  
+    CUDA_CHECK(cudaMallocAsync((void **)&d_offset, offset.size() * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync((void **)&d_flat_projection_col_idx, flat_projection_col_idx.size() * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync((void **)&d_flat_projection_weights, flat_projection_weights.size() * sizeof(float), cuda_stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_offset, offset.data(), offset.size() * sizeof(int), cudaMemcpyHostToDevice, cuda_stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_flat_projection_col_idx, flat_projection_col_idx.data(), flat_projection_col_idx.size() * sizeof(int), cudaMemcpyHostToDevice, cuda_stream));    
+    CUDA_CHECK(cudaMemcpyAsync(d_flat_projection_weights, flat_projection_weights.data(), flat_projection_weights.size() * sizeof(float), cudaMemcpyHostToDevice, cuda_stream));  
 
     // Launch CUDA kernel
     dim3 blockDim(256);
@@ -237,7 +238,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     
     if (gpu_mode == 0) { //Exact
         TIMER_START(ExactCAKernel);    
-        ColumnAddProjectionKernel<<<gridDim, blockDim>>>(d_flat_data,
+        ColumnAddProjectionKernel<<<gridDim, blockDim, 0, cuda_stream>>>(d_flat_data,
                                                         d_selected_examples,
                                                         d_col_add_projected,
                                                         d_offset,
@@ -247,7 +248,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                                                         num_total_rows,
                                                         num_proj);
         CUDA_CHECK(cudaPeekAtLastError());
-        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
         TIMER_STOP(ExactCAKernel);
         TIMER_PRINT(ExactCAKernel, "GPU Exact Column Add Kernel Time taken");
     }
@@ -257,22 +258,22 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
         float* d_min_vals;
         float* d_max_vals;          
         float* d_bin_widths;
-        CUDA_CHECK(cudaMalloc(&d_min_vals, num_proj * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&d_max_vals, num_proj * sizeof(float)));
-        CUDA_CHECK(cudaMalloc(&d_bin_widths, num_proj * sizeof(float)));
+        CUDA_CHECK(cudaMallocAsync(&d_min_vals, num_proj * sizeof(float), cuda_stream));
+        CUDA_CHECK(cudaMallocAsync(&d_max_vals, num_proj * sizeof(float), cuda_stream));
+        CUDA_CHECK(cudaMallocAsync(&d_bin_widths, num_proj * sizeof(float), cuda_stream));
         *d_min_vals_out = d_min_vals;
         *d_max_vals_out = d_max_vals;
         *d_bin_widths_out = d_bin_widths;
 
         float* d_block_min;
         float* d_block_max;
-        CUDA_CHECK(cudaMalloc(&d_block_min, total_blocks * sizeof(float)));  // Allocate intermediate buffers
-        CUDA_CHECK(cudaMalloc(&d_block_max, total_blocks * sizeof(float)));  // Allocate intermediate buffers
+        CUDA_CHECK(cudaMallocAsync(&d_block_min, total_blocks * sizeof(float), cuda_stream));  // Allocate intermediate buffers
+        CUDA_CHECK(cudaMallocAsync(&d_block_max, total_blocks * sizeof(float), cuda_stream));  // Allocate intermediate buffers
 
         size_t shmem = 2 * blockDim.x * sizeof(float);
 
         TIMER_START(CombinedKernel);
-        ColumnAddComputeMinMaxCombined<<<gridDim, blockDim, shmem>>>(d_flat_data,
+        ColumnAddComputeMinMaxCombined<<<gridDim, blockDim, shmem, cuda_stream>>>(d_flat_data,
                                                                         d_selected_examples,
                                                                         d_col_add_projected,
                                                                         d_offset,
@@ -284,7 +285,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
                                                                         d_block_min,
                                                                         d_block_max);
         CUDA_CHECK(cudaPeekAtLastError());
-        CUDA_CHECK(cudaDeviceSynchronize()); //It blocks the CPU until the device has completed all preceding requested tasks.
+        CUDA_CHECK(cudaStreamSynchronize(cuda_stream)); //It blocks the CPU until the device has completed all preceding requested tasks.
         TIMER_STOP(CombinedKernel);
 
         TIMER_START(ReduceMinMax);
@@ -292,21 +293,26 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
         thrust::device_vector<int> d_end(num_proj);
 
         // Fill begin offsets: 0, num_blocks, 2*num_blocks, ...
-        thrust::sequence(d_begin.begin(), d_begin.end(), 0, (int)gridDim.x);
-
+        thrust::sequence(
+                    thrust::cuda::par.on(cuda_stream),
+                    d_begin.begin(),
+                    d_begin.end(),
+                    0,
+                    (int)gridDim.x);
         // Fill end offsets: num_blocks, 2*num_blocks, 3*num_blocks, ...
-        thrust::sequence(d_end.begin(), d_end.end(), (int)gridDim.x, (int)gridDim.x);
-
+        thrust::sequence(
+                    thrust::cuda::par.on(cuda_stream),
+                    d_end.begin(),
+                    d_end.end(),
+                    (int)gridDim.x,
+                    (int)gridDim.x);
         int* d_begin_ptr = thrust::raw_pointer_cast(d_begin.data());
         int* d_end_ptr   = thrust::raw_pointer_cast(d_end.data());
 
         // ====================================================================
         // 🚀 CUB: MIN and Maxper projection
         // ====================================================================
-     
-        cudaStream_t stream0, stream1;
-        CUDA_CHECK(cudaStreamCreate(&stream0));
-        CUDA_CHECK(cudaStreamCreate(&stream1));
+    
 
         size_t temp_bytes = 0;
         void* d_temp = nullptr;
@@ -319,10 +325,10 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
             num_proj,
             d_begin_ptr,
             d_end_ptr,
-            stream0
+            cuda_stream
         );
 
-        cudaMalloc(&d_temp, temp_bytes);
+        CUDA_CHECK(cudaMallocAsync(&d_temp, temp_bytes, cuda_stream));
 
         cub::DeviceSegmentedReduce::Min(
             d_temp, temp_bytes,
@@ -331,7 +337,7 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
             num_proj,
             d_begin_ptr,
             d_end_ptr,
-            stream0
+            cuda_stream
         );
         
         cub::DeviceSegmentedReduce::Max(
@@ -341,16 +347,15 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
             num_proj,
             d_begin_ptr,
             d_end_ptr,
-            stream1
+            cuda_stream
         );
         CUDA_CHECK(cudaPeekAtLastError());
-        
-        CUDA_CHECK(cudaDeviceSynchronize()); //It blocks the CPU until the device has completed all preceding requested tasks.
-        CUDA_CHECK(cudaStreamDestroy(stream0));
-        CUDA_CHECK(cudaStreamDestroy(stream1));
-        CUDA_CHECK(cudaFree(d_temp));
-        CUDA_CHECK(cudaFree(d_block_min));
-        CUDA_CHECK(cudaFree(d_block_max));
+        CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
+
+        //CUDA_CHECK(cudaDeviceSynchronize()); //It blocks the CPU until the device has completed all preceding requested tasks.
+        CUDA_CHECK(cudaFreeAsync(d_temp, cuda_stream));
+        CUDA_CHECK(cudaFreeAsync(d_block_min, cuda_stream));
+        CUDA_CHECK(cudaFreeAsync(d_block_max, cuda_stream));
         TIMER_STOP(ReduceMinMax);
         TIMER_STOP(HistogramCombinedKernel);
 
@@ -361,9 +366,9 @@ void ApplyProjectionColumnADD (const float* d_flat_data,
     }
     
     // Free device memory
-    CUDA_CHECK(cudaFree(d_offset));
-    CUDA_CHECK(cudaFree(d_flat_projection_col_idx));
-    CUDA_CHECK(cudaFree(d_flat_projection_weights));
+    CUDA_CHECK(cudaFreeAsync(d_offset, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_flat_projection_col_idx, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_flat_projection_weights, cuda_stream));
 
 }
 
@@ -450,7 +455,8 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
                           int** d_prefix_2_out,
                           const int num_rows, //selected_examples.size()
                           const int num_bins,
-                          const int num_proj
+                          const int num_proj,
+                          cudaStream_t cuda_stream
                           )
     {
     ///////////////////////Calculate Bin Widths///////////////////////////
@@ -466,7 +472,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
                                 : 1.0f;
         h_bin_widths[proj_id] = bin_width + 1e-6f; //Add small epsilon to avoid division by zero
     }
-    CUDA_CHECK(cudaMemcpy(d_bin_widths, h_bin_widths.data(), num_proj * sizeof(float), cudaMemcpyHostToDevice)); 
+    CUDA_CHECK(cudaMemcpyAsync(d_bin_widths, h_bin_widths.data(), num_proj * sizeof(float), cudaMemcpyHostToDevice, cuda_stream)); 
 
 
 
@@ -476,12 +482,12 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     int* d_hist_class0;
     int* d_hist_class1;
     int* d_hist_class2;
-    CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * (num_bins) * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_hist_class1, num_proj * (num_bins) * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_hist_class2, num_proj * (num_bins) * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * (num_bins) * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_hist_class1, 0, num_proj * (num_bins) * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * (num_bins) * sizeof(int)));
+    CUDA_CHECK(cudaMallocAsync(&d_hist_class0, num_proj * (num_bins) * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync(&d_hist_class1, num_proj * (num_bins) * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync(&d_hist_class2, num_proj * (num_bins) * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_hist_class0, 0, num_proj * (num_bins) * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_hist_class1, 0, num_proj * (num_bins) * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_hist_class2, 0, num_proj * (num_bins) * sizeof(int), cuda_stream));
 
     
     ///////////////////////BuildHistogramEqualWidthKernel/////////////////////////////////////////
@@ -495,12 +501,12 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     dim3 grid_hist(blocks_per_grid_hist, num_proj); //single dimension grid/projection
     //printf("grid_hist: (%d, %d)\n", grid_hist.x, grid_hist.y);
     int sharedMemSize = 3 * (num_bins) * sizeof(int); // For Hist 0, Hist 1, and Hist 2
-    BuildHistogramEqualWidthKernel<BLOCK><<<grid_hist, threads_per_block_hist, sharedMemSize>>>(d_col_add_projected, d_selected_examples, d_global_labels_data,
+    BuildHistogramEqualWidthKernel<BLOCK><<<grid_hist, threads_per_block_hist, sharedMemSize, cuda_stream>>>(d_col_add_projected, d_selected_examples, d_global_labels_data,
                                                                              d_hist_class0, d_hist_class1, d_hist_class2,
                                                                              d_min_vals, d_max_vals, d_bin_widths,
                                                                              num_rows, num_proj, num_bins);
     CUDA_CHECK(cudaPeekAtLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
     TIMER_STOP(EWBinning);
 
     ///////////////////////Inclusive Scan per projection per class/////////////////////////////////////////
@@ -510,12 +516,12 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     int* d_prefix_2;
     int* d_prefix_1;
     int* d_prefix_0;
-    CUDA_CHECK(cudaMalloc(&d_prefix_2, (total_rows * sizeof(int))));
-    CUDA_CHECK(cudaMalloc(&d_prefix_1, (total_rows * sizeof(int))));
-    CUDA_CHECK(cudaMalloc(&d_prefix_0, (total_rows * sizeof(int))));
-    CUDA_CHECK(cudaMemset(d_prefix_2, 0, total_rows * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_prefix_1, 0, total_rows * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
+    CUDA_CHECK(cudaMallocAsync(&d_prefix_2, (total_rows * sizeof(int)), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync(&d_prefix_1, (total_rows * sizeof(int)), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync(&d_prefix_0, (total_rows * sizeof(int)), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_prefix_2, 0, total_rows * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_prefix_1, 0, total_rows * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_prefix_0, 0, total_rows * sizeof(int), cuda_stream));
 
     auto counting_begin = thrust::make_counting_iterator<int>(0);
     auto keys_begin = thrust::make_transform_iterator(counting_begin, index_to_proj{num_bins});
@@ -528,12 +534,10 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     
     // auto d_hist_class0_ptr   = thrust::device_pointer_cast(d_hist_class0);        // input Not Used class
     // auto d_prefix_0_ptr = thrust::device_pointer_cast(d_prefix_0);  // output
-    cudaStream_t stream0, stream1;
-    CUDA_CHECK(cudaStreamCreate(&stream0));
-    CUDA_CHECK(cudaStreamCreate(&stream1));
 
-        thrust::inclusive_scan_by_key( //label = 0 second
-        thrust::cuda::par.on(stream0),
+
+    thrust::inclusive_scan_by_key( //label = 0 second
+        thrust::cuda::par.on(cuda_stream),
         keys_begin,                      /* keys   begin   */
         keys_begin + total_rows,         /* keys   end     */
         d_hist_class2_ptr,                      /* values begin   */
@@ -543,7 +547,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     ); 
 
     thrust::inclusive_scan_by_key( //label = 1 first
-        thrust::cuda::par.on(stream1),
+        thrust::cuda::par.on(cuda_stream),
         keys_begin,                      /* keys   begin   */
         keys_begin + total_rows,         /* keys   end     */
         d_hist_class1_ptr,                      /* values begin   */
@@ -551,11 +555,7 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
         thrust::equal_to<int>(),         /* identical keys */
         thrust::plus<int>()              /* inclusive sum  */
     );            
-    // CUDA_CHECK(cudaStreamSynchronize(stream0)); //It blocks the CPU until the device has completed all preceding requested tasks in the specific stream.
-    // CUDA_CHECK(cudaStreamSynchronize(stream1)); //It blocks the CPU until the device has completed all preceding requested tasks in the specific stream.
-    CUDA_CHECK(cudaDeviceSynchronize()); //It blocks the CPU until the device has completed all preceding requested tasks.
-    CUDA_CHECK(cudaStreamDestroy(stream0));
-    CUDA_CHECK(cudaStreamDestroy(stream1));
+    CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
 
     TIMER_STOP(EWInclusiveScan);
 
@@ -566,11 +566,11 @@ void EqualWidthHistogram (const float* __restrict__ d_col_add_projected, //attri
     *d_prefix_1_out = d_prefix_1;
     *d_prefix_2_out = d_prefix_2;
 
-    CUDA_CHECK(cudaFree(d_hist_class0));
-    CUDA_CHECK(cudaFree(d_hist_class1));
-    CUDA_CHECK(cudaFree(d_hist_class2));
-    CUDA_CHECK(cudaFree((void *)d_selected_examples));
-    CUDA_CHECK(cudaFree((void *)d_col_add_projected));
+    CUDA_CHECK(cudaFreeAsync(d_hist_class0, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_hist_class1, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_hist_class2, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync((void *)d_selected_examples, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync((void *)d_col_add_projected, cuda_stream));
 }
 
 __device__ __forceinline__
@@ -670,7 +670,8 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
                           const int num_rows, //selected_examples.size()
                           const int num_bins,
                           const int num_proj,
-                          std::mt19937& random
+                          std::mt19937& random,
+                          cudaStream_t cuda_stream
                           )
     {
         TIMER_START(RandomBinning);
@@ -694,9 +695,10 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         thrust::device_vector<float> d_candidate_splits(candidate_splits.begin(), candidate_splits.end());
         thrust::device_vector<int> d_offsets(num_proj + 1);
         float* d_sorted_candidate_splits = nullptr;
-        CUDA_CHECK(cudaMalloc(&d_sorted_candidate_splits, sizeof(float) * num_proj * (num_bins - 1)));
+        CUDA_CHECK(cudaMallocAsync(&d_sorted_candidate_splits, sizeof(float) * num_proj * (num_bins - 1), cuda_stream));
 
         thrust::sequence(
+            thrust::cuda::par.on(cuda_stream),
             d_offsets.begin(),
             d_offsets.end(),
             0,
@@ -712,10 +714,12 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
             num_proj * (num_bins - 1),           // total number of keys
             num_proj,                      // number of segments
             d_offsets.data().get(),        // segment begin offsets
-            d_offsets.data().get() + 1     // segment end offsets
-        );
+            d_offsets.data().get() + 1,
+            0,                              // begin bit
+            32,                            // end bit                               
+            cuda_stream);
         void* d_temp = nullptr;
-        CUDA_CHECK(cudaMalloc(&d_temp, temp_bytes));
+        CUDA_CHECK(cudaMallocAsync(&d_temp, temp_bytes, cuda_stream));
 
         cub::DeviceSegmentedRadixSort::SortKeys(
             d_temp,           // temp storage
@@ -725,9 +729,11 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
             num_proj * (num_bins - 1),
             num_proj,
             d_offsets.data().get(),
-            d_offsets.data().get() + 1
-        );
-        CUDA_CHECK(cudaFree(d_temp));
+            d_offsets.data().get() + 1,
+            0,                              // begin bit
+            32,                            // end bit                               
+            cuda_stream);
+        CUDA_CHECK(cudaFreeAsync(d_temp, cuda_stream));
 
         const int BLOCK = 256;
         //cub::UpperBound to build histogram based on random candidate splits, device side binary search
@@ -735,12 +741,12 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         int* d_hist_class1;
         int* d_hist_class2;
         
-        CUDA_CHECK(cudaMalloc(&d_hist_class0, num_proj * (num_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMalloc(&d_hist_class1, num_proj * (num_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMalloc(&d_hist_class2, num_proj * (num_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_hist_class0, 0, num_proj * (num_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_hist_class1, 0, num_proj * (num_bins) * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_hist_class2, 0, num_proj * (num_bins) * sizeof(int)));
+        CUDA_CHECK(cudaMallocAsync(&d_hist_class0, num_proj * (num_bins) * sizeof(int), cuda_stream));
+        CUDA_CHECK(cudaMallocAsync(&d_hist_class1, num_proj * (num_bins) * sizeof(int), cuda_stream));
+        CUDA_CHECK(cudaMallocAsync(&d_hist_class2, num_proj * (num_bins) * sizeof(int), cuda_stream));
+        CUDA_CHECK(cudaMemsetAsync(d_hist_class0, 0, num_proj * (num_bins) * sizeof(int), cuda_stream));
+        CUDA_CHECK(cudaMemsetAsync(d_hist_class1, 0, num_proj * (num_bins) * sizeof(int), cuda_stream));
+        CUDA_CHECK(cudaMemsetAsync(d_hist_class2, 0, num_proj * (num_bins) * sizeof(int), cuda_stream));
         ///////////////////////BuildHistogramEqualWidthKernel/////////////////////////////////////////
         
         //auto startHist = std::chrono::steady_clock::now();
@@ -749,12 +755,12 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         int blocks_per_grid_hist = (num_rows/num_elements_per_thread + threads_per_block_hist - 1) / threads_per_block_hist;
         dim3 grid_hist(blocks_per_grid_hist, num_proj); //single dimension grid/projection
         int sharedMemSize = 3 * (num_bins) * sizeof(int); // For Hist 0, Hist 1, and Hist 2
-        BuildHistogramRandomKernel<BLOCK><<<grid_hist, threads_per_block_hist, sharedMemSize>>>
+        BuildHistogramRandomKernel<BLOCK><<<grid_hist, threads_per_block_hist, sharedMemSize, cuda_stream>>>
                                                                     (d_col_add_projected, d_selected_examples, d_global_labels_data,
                                                                         d_hist_class0, d_hist_class1, d_hist_class2,
                                                                     num_rows, num_proj, num_bins, d_sorted_candidate_splits);
         CUDA_CHECK(cudaPeekAtLastError());
-        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
 
         TIMER_STOP(RandomBinning);                                                            
 
@@ -765,12 +771,12 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         int* d_prefix_2;
         int* d_prefix_1;
         int* d_prefix_0;
-        CUDA_CHECK(cudaMalloc(&d_prefix_2, (total_rows * sizeof(int))));
-        CUDA_CHECK(cudaMalloc(&d_prefix_1, (total_rows * sizeof(int))));
-        CUDA_CHECK(cudaMalloc(&d_prefix_0, (total_rows * sizeof(int))));
-        CUDA_CHECK(cudaMemset(d_prefix_2, 0, total_rows * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_prefix_1, 0, total_rows * sizeof(int)));
-        CUDA_CHECK(cudaMemset(d_prefix_0, 0, total_rows * sizeof(int)));
+        CUDA_CHECK(cudaMallocAsync(&d_prefix_2, (total_rows * sizeof(int)), cuda_stream));
+        CUDA_CHECK(cudaMallocAsync(&d_prefix_1, (total_rows * sizeof(int)), cuda_stream));
+        CUDA_CHECK(cudaMallocAsync(&d_prefix_0, (total_rows * sizeof(int)), cuda_stream));
+        CUDA_CHECK(cudaMemsetAsync(d_prefix_2, 0, total_rows * sizeof(int), cuda_stream));
+        CUDA_CHECK(cudaMemsetAsync(d_prefix_1, 0, total_rows * sizeof(int), cuda_stream));
+        CUDA_CHECK(cudaMemsetAsync(d_prefix_0, 0, total_rows * sizeof(int), cuda_stream));
 
         auto counting_begin = thrust::make_counting_iterator<int>(0);
         auto keys_begin = thrust::make_transform_iterator(counting_begin, index_to_proj{num_bins});
@@ -783,13 +789,9 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         
         // auto d_hist_class0_ptr   = thrust::device_pointer_cast(d_hist_class0);        // input Not Used class
         // auto d_prefix_0_ptr = thrust::device_pointer_cast(d_prefix_0);  // output
-        cudaStream_t stream0;
-        cudaStream_t stream1;
-        CUDA_CHECK(cudaStreamCreate(&stream0));
-        CUDA_CHECK(cudaStreamCreate(&stream1));
     
             thrust::inclusive_scan_by_key( //label = 0 second
-            thrust::cuda::par.on(stream0),
+            thrust::cuda::par.on(cuda_stream),
             keys_begin,                      /* keys   begin   */
             keys_begin + total_rows,         /* keys   end     */
             d_hist_class2_ptr,                      /* values begin   */
@@ -799,7 +801,7 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         ); 
 
         thrust::inclusive_scan_by_key( //label = 1 first
-            thrust::cuda::par.on(stream1),
+            thrust::cuda::par.on(cuda_stream),
             keys_begin,                      /* keys   begin   */
             keys_begin + total_rows,         /* keys   end     */
             d_hist_class1_ptr,                      /* values begin   */
@@ -807,11 +809,7 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
             thrust::equal_to<int>(),         /* identical keys */
             thrust::plus<int>()              /* inclusive sum  */
         );            
-        // CUDA_CHECK(cudaStreamSynchronize(stream0)); //It blocks the CPU until the device has completed all preceding requested tasks in the specific stream.
-        // CUDA_CHECK(cudaStreamSynchronize(stream1)); //It blocks the CPU until the device has completed all preceding requested tasks in the specific stream.
-        CUDA_CHECK(cudaDeviceSynchronize());
-        CUDA_CHECK(cudaStreamDestroy(stream0));
-        CUDA_CHECK(cudaStreamDestroy(stream1));
+        CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
 
         TIMER_STOP(RandomInclusiveScan);
 
@@ -823,11 +821,11 @@ void RandomHistogram (const float* __restrict__ d_col_add_projected, //attribute
         *d_prefix_2_out = d_prefix_2;
         *d_candidate_splits_out = d_sorted_candidate_splits;
             
-        CUDA_CHECK(cudaFree(d_hist_class0));
-        CUDA_CHECK(cudaFree(d_hist_class1));
-        CUDA_CHECK(cudaFree(d_hist_class2));
-        CUDA_CHECK(cudaFree((void *)d_selected_examples));
-        CUDA_CHECK(cudaFree((void *)d_col_add_projected));
+        CUDA_CHECK(cudaFreeAsync(d_hist_class0, cuda_stream));
+        CUDA_CHECK(cudaFreeAsync(d_hist_class1, cuda_stream));
+        CUDA_CHECK(cudaFreeAsync(d_hist_class2, cuda_stream));
+        CUDA_CHECK(cudaFreeAsync((void *)d_selected_examples, cuda_stream));
+        CUDA_CHECK(cudaFreeAsync((void *)d_col_add_projected, cuda_stream));
     }
 
 __device__ __forceinline__
@@ -984,12 +982,13 @@ void HistogramSplit (const int* d_prefix_0,
                       double* elapsed_ms,
                       const bool verbose,
                       const int comp_method, //0: entropy, 1: gini
-                      const int gpu_mode
+                      const int gpu_mode,
+                      cudaStream_t cuda_stream
                     )
 {
     TIMER_START(HistogramSplitEvaluation);
     float* d_out_per_bin_per_proj;
-    CUDA_CHECK(cudaMalloc(&d_out_per_bin_per_proj, num_proj * (num_bins) * sizeof(float))); // Store Entropy gain for each bin (except last)
+    CUDA_CHECK(cudaMallocAsync(&d_out_per_bin_per_proj, num_proj * (num_bins) * sizeof(float), cuda_stream)); // Store Entropy gain for each bin (except last)
     void* d_temp_storage = nullptr;
     size_t temp_storage_bytes = 0;
     int threads_per_block_split = 256;
@@ -998,17 +997,17 @@ void HistogramSplit (const int* d_prefix_0,
     dim3 block_split(threads_per_block_split);
 
     if (comp_method == 0) {       
-        FindBestEntropySplitKernel<<<grid_split, block_split>>>(
+        FindBestEntropySplitKernel<<<grid_split, block_split, 0, cuda_stream>>>(
             d_prefix_0, d_prefix_1, num_proj, num_bins,
             d_out_per_bin_per_proj);
     }
     else {
-        FindBestGiniSplitKernel<<<grid_split, block_split>>>(
+        FindBestGiniSplitKernel<<<grid_split, block_split, 0, cuda_stream>>>(
             d_prefix_0, d_prefix_1, num_proj, num_bins,
             d_out_per_bin_per_proj);
     }
     CUDA_CHECK(cudaPeekAtLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
 
     TIMER_STOP(HistogramSplitEvaluation);
     
@@ -1017,22 +1016,21 @@ void HistogramSplit (const int* d_prefix_0,
     // Find best gain across all projections and bins
     cub::KeyValuePair<int, float>* d_out1;
      // Allocate output
-    CUDA_CHECK(cudaMalloc(&d_out1, sizeof(cub::KeyValuePair<int, float>)));
+    CUDA_CHECK(cudaMallocAsync(&d_out1, sizeof(cub::KeyValuePair<int, float>), cuda_stream));
     // Step 1: Get temp storage size
     cub::DeviceReduce::ArgMax(
         d_temp_storage, temp_storage_bytes,
-        d_out_per_bin_per_proj, d_out1, num_proj * num_bins);
+        d_out_per_bin_per_proj, d_out1, num_proj * num_bins, cuda_stream);
     // Step 2: Allocate temp storage
-    CUDA_CHECK(cudaMalloc(&d_temp_storage, temp_storage_bytes));
+    CUDA_CHECK(cudaMallocAsync(&d_temp_storage, temp_storage_bytes, cuda_stream));
     // Step 3: Run ArgMax
     cub::DeviceReduce::ArgMax(
         d_temp_storage, temp_storage_bytes,
-        d_out_per_bin_per_proj, d_out1, num_proj * num_bins
-    );
+        d_out_per_bin_per_proj, d_out1, num_proj * num_bins, cuda_stream);
     cub::KeyValuePair<int, float> h_out1;
-    CUDA_CHECK(cudaMemcpy(&h_out1, d_out1, sizeof(h_out1), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaFree(d_out1));
-    CUDA_CHECK(cudaFree(d_temp_storage));
+    CUDA_CHECK(cudaMemcpyAsync(&h_out1, d_out1, sizeof(h_out1), cudaMemcpyDeviceToHost, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_out1, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_temp_storage, cuda_stream));
 
     if (h_out1.value > 0.f) {
         // Calculate best projection
@@ -1044,25 +1042,25 @@ void HistogramSplit (const int* d_prefix_0,
 
         //Calculate number of positive examples in the node after split
         int total_count_0, total_count_1, left_count_0, left_count_1;
-        CUDA_CHECK(cudaMemcpy(&total_count_0, d_prefix_0 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&total_count_1, d_prefix_1 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&left_count_0, d_prefix_0 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&left_count_1, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpyAsync(&total_count_0, d_prefix_0 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost, cuda_stream));
+        CUDA_CHECK(cudaMemcpyAsync(&total_count_1, d_prefix_1 + (num_bins - 1), sizeof(int), cudaMemcpyDeviceToHost, cuda_stream));
+        CUDA_CHECK(cudaMemcpyAsync(&left_count_0, d_prefix_0 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost, cuda_stream));
+        CUDA_CHECK(cudaMemcpyAsync(&left_count_1, d_prefix_1 + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost, cuda_stream));
         *num_pos_examples_out = total_count_0 + total_count_1 - left_count_0 - left_count_1;
        
         if (gpu_mode == 1) { //Random
             float best_threshold;
             int index = (*best_proj) * (num_bins - 1) + (*best_bin_out);
-            CUDA_CHECK(cudaMemcpy(&best_threshold, d_candidate_splits + index, sizeof(float), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpyAsync(&best_threshold, d_candidate_splits + index, sizeof(float), cudaMemcpyDeviceToHost, cuda_stream));
             *best_threshold_out = best_threshold;
-            CUDA_CHECK(cudaFree((void *)d_candidate_splits));
+            CUDA_CHECK(cudaFreeAsync((void *)d_candidate_splits, cuda_stream));
         }
 
         if (gpu_mode == 2) { //Equal Width
             float bin_width;
-            CUDA_CHECK(cudaMemcpy(&bin_width, d_bin_widths + *best_proj, sizeof(float), cudaMemcpyDeviceToHost));
+            CUDA_CHECK(cudaMemcpyAsync(&bin_width, d_bin_widths + *best_proj, sizeof(float), cudaMemcpyDeviceToHost, cuda_stream));
             *best_threshold_out = (*best_bin_out + 0.5) * bin_width + h_min_vals[*best_proj];  
-            CUDA_CHECK(cudaFree((void *)d_bin_widths));
+            CUDA_CHECK(cudaFreeAsync((void *)d_bin_widths, cuda_stream));
             auto endThreshold = std::chrono::steady_clock::now();
         }
     }
@@ -1075,11 +1073,11 @@ void HistogramSplit (const int* d_prefix_0,
 
 
     
-    CUDA_CHECK(cudaFree(d_out_per_bin_per_proj));
+    CUDA_CHECK(cudaFreeAsync((void *)d_out_per_bin_per_proj, cuda_stream));
 }
 
 void ThrustSortIndicesOnly(float* d_proj_values, unsigned int* d_row_ids, unsigned int* d_selected_examples, 
-                            int num_rows, int num_proj) 
+                            int num_rows, int num_proj, cudaStream_t cuda_stream) 
     {
     //d_row_ids: device pointer, length = num_rows* num_proj, uninitialised, will end up containing the example indices per projection, permuted exactly like the sorted projection values.
     //Copy the list of selected example indices into a thrust::device_vector
@@ -1095,6 +1093,7 @@ void ThrustSortIndicesOnly(float* d_proj_values, unsigned int* d_row_ids, unsign
     auto d_row_ids_iter = thrust::device_pointer_cast(d_row_ids);
 
     thrust::transform(
+        thrust::cuda::par.on(cuda_stream),
         thrust::make_counting_iterator<int>(0), // first  input iterator
         thrust::make_counting_iterator<int>(num_rows * num_proj), // last  iterator
         d_row_ids_iter, // output iterator
@@ -1105,6 +1104,7 @@ void ThrustSortIndicesOnly(float* d_proj_values, unsigned int* d_row_ids, unsign
     size_t temp_bytes = 0;
     thrust::device_vector<int> d_offsets(num_proj + 1);
     thrust::sequence(
+                    thrust::cuda::par.on(cuda_stream),
                     d_offsets.begin(),
                     d_offsets.end(),
                     0,
@@ -1119,10 +1119,13 @@ void ThrustSortIndicesOnly(float* d_proj_values, unsigned int* d_row_ids, unsign
         num_proj * num_rows,           // total number of keys
         num_proj,                      // number of segments
         d_offsets.data().get(),        // segment begin offsets
-        d_offsets.data().get() + 1     // segment end offsets
+        d_offsets.data().get() + 1,     // segment end offsets
+        0,                              // begin bit
+        32,                             // end bit
+        cuda_stream
     );
     void* d_temp = nullptr;
-    cudaMalloc(&d_temp, temp_bytes);
+    CUDA_CHECK(cudaMallocAsync(&d_temp, temp_bytes, cuda_stream));
 
     cub::DeviceSegmentedRadixSort::SortPairs(
         d_temp,           // temp storage
@@ -1134,10 +1137,13 @@ void ThrustSortIndicesOnly(float* d_proj_values, unsigned int* d_row_ids, unsign
         num_proj * num_rows,           // total number of keys
         num_proj,                      // number of segments
         d_offsets.data().get(),        // segment begin offsets
-        d_offsets.data().get() + 1     // segment end offsets
+        d_offsets.data().get() + 1,     // segment end offsets
+        0,                              // begin bit
+        32,                             // end bit
+        cuda_stream
     );
-    cudaFree(d_temp);
-    cudaFree((void *)d_selected_examples);
+    cudaFreeAsync(d_temp, cuda_stream);
+    cudaFreeAsync((void *)d_selected_examples, cuda_stream);
 }
 
 __device__ __forceinline__
@@ -1376,7 +1382,8 @@ void ExactSplit(
     float* d_col_add_projected,  // [num_proj * num_rows]
     double* elapsed_ms,
     const bool verbose,
-    const int comp_method
+    const int comp_method,
+    cudaStream_t cuda_stream
     )
 {
     CUDA_CHECK(cudaGetLastError()); 
@@ -1388,16 +1395,13 @@ void ExactSplit(
     int total_rows = num_proj * num_rows;
     int* d_prefix_pos;
     int* d_prefix_neg;
-    CUDA_CHECK(cudaMalloc(&d_prefix_pos, (total_rows * sizeof(int) )));
-    CUDA_CHECK(cudaMalloc(&d_prefix_neg, (total_rows * sizeof(int) )));
-    CUDA_CHECK(cudaMemset(d_prefix_pos, 0, total_rows * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_prefix_neg, 0, total_rows * sizeof(int)));
-  
+    CUDA_CHECK(cudaMallocAsync(&d_prefix_pos, (total_rows * sizeof(int) ), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync(&d_prefix_neg, (total_rows * sizeof(int) ), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_prefix_pos, 0, total_rows * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_prefix_neg, 0, total_rows * sizeof(int), cuda_stream));
+ 
     int* d_flag;
-    cudaStream_t stream0, stream1;
-    CUDA_CHECK(cudaStreamCreate(&stream0));
-    CUDA_CHECK(cudaStreamCreate(&stream1));
-    CUDA_CHECK(cudaMalloc(&d_flag, total_rows * sizeof(int)));
+    CUDA_CHECK(cudaMallocAsync(&d_flag, total_rows * sizeof(int), cuda_stream));
     dim3 gridCub((total_rows + blockSize - 1) / blockSize);//1D grid
 
     /* Make Thrust iterators */
@@ -1409,10 +1413,10 @@ void ExactSplit(
     auto d_prefix_pos_ptr = thrust::device_pointer_cast(d_prefix_pos);  // output
     auto d_prefix_neg_ptr = thrust::device_pointer_cast(d_prefix_neg);  // output
     
-    buildPosFlag<<<gridCub, blockSize, 0, stream0>>>(d_sorted_indices, d_labels, d_flag, total_rows);
+    buildPosFlag<<<gridCub, blockSize, 0, cuda_stream>>>(d_sorted_indices, d_labels, d_flag, total_rows);
 
     thrust::inclusive_scan_by_key( //label = 1 first
-        thrust::cuda::par.on(stream0),
+        thrust::cuda::par.on(cuda_stream),
         keys_begin,                      /* keys   begin   */
         keys_begin + total_rows,         /* keys   end     */
         d_flag_ptr,                      /* values begin   */
@@ -1421,10 +1425,10 @@ void ExactSplit(
         thrust::plus<int>()              /* inclusive sum  */
     );            
    
-    invertFlag<<<gridCub, blockSize, 0, stream1>>>(d_flag, total_rows);
+    invertFlag<<<gridCub, blockSize, 0, cuda_stream>>>(d_flag, total_rows);
 
     thrust::inclusive_scan_by_key( //label = 0 second
-        thrust::cuda::par.on(stream1),
+        thrust::cuda::par.on(cuda_stream),
         keys_begin,                      /* keys   begin   */
         keys_begin + total_rows,         /* keys   end     */
         d_flag_ptr,                      /* values begin   */
@@ -1432,12 +1436,9 @@ void ExactSplit(
         thrust::equal_to<int>(),         /* identical keys */
         thrust::plus<int>()
     );
-    CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaStreamDestroy(stream0));
-    CUDA_CHECK(cudaStreamDestroy(stream1));
-    CUDA_CHECK(cudaFree(d_flag));
+    CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_flag, cuda_stream));
     TIMER_STOP(ExactPrefixSum);
-
     
     TIMER_START(ExactGainComputation);
     int dimX = (logical_rows + blockSize - 1) / blockSize;
@@ -1445,23 +1446,23 @@ void ExactSplit(
     int total_blocks = num_proj * dimX;
     int* d_block_best_split;
     float* d_block_best_gain;
-    CUDA_CHECK(cudaMalloc(&d_block_best_split, total_blocks * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_block_best_gain, total_blocks * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_block_best_split, 0xFF, total_blocks * sizeof(int)));
-    CUDA_CHECK(cudaMemset(d_block_best_gain, 0xFF, total_blocks * sizeof(float)));
+    CUDA_CHECK(cudaMallocAsync(&d_block_best_split, total_blocks * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMallocAsync(&d_block_best_gain, total_blocks * sizeof(float), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_block_best_split, 0xFF, total_blocks * sizeof(int), cuda_stream));
+    CUDA_CHECK(cudaMemsetAsync(d_block_best_gain, 0xFF, total_blocks * sizeof(float), cuda_stream));
     
     dim3 gridDim(dimX, num_proj); //int dimX = (logical_rows + blockSize - 1) / blockSize;
     if (comp_method == 0) {
-        EntropyGainKernel<STRIDE, blockSize><<<gridDim, blockSize, shared_mem>>>(
+        EntropyGainKernel<STRIDE, blockSize><<<gridDim, blockSize, shared_mem, cuda_stream>>>(
         d_prefix_pos, d_prefix_neg, d_col_add_projected,
         d_block_best_split, d_block_best_gain, num_rows, logical_rows);
     } else {    
-        GiniGainKernel<STRIDE, blockSize><<<gridDim, blockSize, shared_mem>>>(
+        GiniGainKernel<STRIDE, blockSize><<<gridDim, blockSize, shared_mem, cuda_stream>>>(
         d_prefix_pos, d_prefix_neg, d_col_add_projected,
         d_block_best_split, d_block_best_gain, num_rows, logical_rows);
     }
     CUDA_CHECK(cudaPeekAtLastError());
-    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaStreamSynchronize(cuda_stream));
     TIMER_STOP(ExactGainComputation);
 
     TIMER_START(ExactBestGainReduction);
@@ -1471,30 +1472,30 @@ void ExactSplit(
 
     cub::KeyValuePair<int, float>* d_out1;
      // Allocate output
-    CUDA_CHECK(cudaMalloc(&d_out1, sizeof(cub::KeyValuePair<int, float>)));
+    CUDA_CHECK(cudaMallocAsync(&d_out1, sizeof(cub::KeyValuePair<int, float>), cuda_stream));
         // Step 1: Get temp storage size
     cub::DeviceReduce::ArgMax(
         d_temp_storage1, temp_storage_bytes1,
-        d_block_best_gain, d_out1, total_blocks);
+        d_block_best_gain, d_out1, total_blocks, cuda_stream);
     // Step 2: Allocate temp storage
-    CUDA_CHECK(cudaMalloc(&d_temp_storage1, temp_storage_bytes1));
+    CUDA_CHECK(cudaMallocAsync(&d_temp_storage1, temp_storage_bytes1, cuda_stream));
     // Step 3: Run ArgMax
     cub::DeviceReduce::ArgMax(
         d_temp_storage1, temp_storage_bytes1,
-        d_block_best_gain, d_out1, total_blocks
+        d_block_best_gain, d_out1, total_blocks, cuda_stream
     );
 
     cub::KeyValuePair<int, float> h_out1;
-    CUDA_CHECK(cudaMemcpy(&h_out1, d_out1, sizeof(h_out1), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpyAsync(&h_out1, d_out1, sizeof(h_out1), cudaMemcpyDeviceToHost, cuda_stream));
 
     if (h_out1.value > 0.f) {
         *best_gain_out = h_out1.value;
-        CUDA_CHECK(cudaMemcpy(best_split_out, d_block_best_split + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpyAsync(best_split_out, d_block_best_split + h_out1.key, sizeof(int), cudaMemcpyDeviceToHost, cuda_stream));
         *best_proj = h_out1.key / dimX;
         float threshold_1, threshold_2;
         int proj_offset = (*best_proj) * num_rows;
-        CUDA_CHECK(cudaMemcpy(&threshold_1, d_col_add_projected + proj_offset + (*best_split_out) - 1, sizeof(float), cudaMemcpyDeviceToHost));
-        CUDA_CHECK(cudaMemcpy(&threshold_2, d_col_add_projected + proj_offset + (*best_split_out), sizeof(float), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemcpyAsync(&threshold_1, d_col_add_projected + proj_offset + (*best_split_out) - 1, sizeof(float), cudaMemcpyDeviceToHost, cuda_stream));
+        CUDA_CHECK(cudaMemcpyAsync(&threshold_2, d_col_add_projected + proj_offset + (*best_split_out), sizeof(float), cudaMemcpyDeviceToHost, cuda_stream));
         *best_threshold_out = 0.5f * (threshold_1 + threshold_2);
     }
     TIMER_STOP(ExactBestGainReduction);
@@ -1506,12 +1507,12 @@ void ExactSplit(
 
 
 
-    CUDA_CHECK(cudaFree(d_out1));
-    CUDA_CHECK(cudaFree(d_temp_storage1));
-    CUDA_CHECK(cudaFree(d_prefix_pos));
-    CUDA_CHECK(cudaFree(d_prefix_neg));
-    CUDA_CHECK(cudaFree(d_block_best_split));
-    CUDA_CHECK(cudaFree(d_block_best_gain));
-    CUDA_CHECK(cudaFree(d_col_add_projected));
-    CUDA_CHECK(cudaFree(d_sorted_indices));
+    CUDA_CHECK(cudaFreeAsync(d_out1, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_temp_storage1, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_prefix_pos, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_prefix_neg, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_block_best_split, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_block_best_gain, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_col_add_projected, cuda_stream));
+    CUDA_CHECK(cudaFreeAsync(d_sorted_indices, cuda_stream));
 }

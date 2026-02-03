@@ -1428,6 +1428,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
     SplitterWorkResponse response;
     response.manager_data = request.manager_data;
     request.splitter_cache->random.seed(request.seed);
+    cudaStream_t cuda_stream = request.cuda_stream; 
 
     response.condition = absl::make_unique<proto::NodeCondition>();
     response.condition->set_split_score(request.best_score);
@@ -1437,13 +1438,14 @@ namespace yggdrasil_decision_forests::model::decision_tree
       DCHECK_EQ(request.attribute_idx, -1);
       ASSIGN_OR_RETURN(
           const auto found_oblique_condition,
-          FindBestConditionOblique(
+          FindBestConditionOblique( 
               request.common->train_dataset, request.common->selected_examples,
               weights, config, config_link, dt_config, request.common->parent,
               internal_config, request.common->label_stats,
               request.num_oblique_projections_to_run, request.common->constraints,
               response.condition.get(), &request.splitter_cache->random,
-              request.splitter_cache));
+              request.splitter_cache,
+              cuda_stream));
 
       // An oblique split cannot be invalid.
       response.status = found_oblique_condition
@@ -1524,11 +1526,11 @@ namespace yggdrasil_decision_forests::model::decision_tree
       const LabelStats &label_stats,
       const std::optional<int> &override_num_projections,
       const NodeConstraints &constraints, proto::NodeCondition *best_condition,
-      utils::RandomEngine *random, SplitterPerThreadCache *cache)
+      utils::RandomEngine *random, SplitterPerThreadCache *cache, cudaStream_t cuda_stream)
   {
     switch (config.task())
     {
-    case model::proto::Task::CLASSIFICATION:
+    case model::proto::Task::CLASSIFICATION: 
     {
       const auto &class_label_stats =
           utils::down_cast<const ClassificationLabelStats &>(label_stats);
@@ -1536,7 +1538,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
       return FindBestConditionOblique(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, parent, internal_config, class_label_stats,
-          override_num_projections, best_condition, random, cache);
+          override_num_projections, best_condition, random, cache, cuda_stream);
     }
     break;
     case model::proto::Task::REGRESSION:
@@ -1548,7 +1550,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
             train_dataset, selected_examples, weights, config, config_link,
             dt_config, parent, internal_config, reg_label_stats,
             override_num_projections, constraints, best_condition, random,
-            cache);
+            cache, cuda_stream);
       }
       else
       {
@@ -1557,7 +1559,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
         return FindBestConditionOblique(
             train_dataset, selected_examples, weights, config, config_link,
             dt_config, parent, internal_config, reg_label_stats,
-            override_num_projections, best_condition, random, cache);
+            override_num_projections, best_condition, random, cache, cuda_stream);
       }
       break;
     default:
@@ -1579,7 +1581,8 @@ namespace yggdrasil_decision_forests::model::decision_tree
       const proto::Node &parent, const InternalTrainConfig &internal_config,
       const LabelStats &label_stats, const NodeConstraints &constraints,
       proto::NodeCondition *best_condition, utils::RandomEngine *random,
-      PerThreadCache *cache)
+      PerThreadCache *cache,
+      cudaStream_t cuda_stream)
   {
     cache->splitter_cache_list.resize(1);
 
@@ -1600,7 +1603,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
           FindBestConditionOblique(
               train_dataset, selected_examples, weights, config, config_link,
               dt_config, parent, internal_config, label_stats, {}, constraints,
-              best_condition, random, &cache->splitter_cache_list[0]));
+              best_condition, random, &cache->splitter_cache_list[0], cuda_stream));
       break;
     }
 
@@ -1735,7 +1738,8 @@ namespace yggdrasil_decision_forests::model::decision_tree
       const proto::Node &parent, const InternalTrainConfig &internal_config,
       const LabelStats &label_stats, const NodeConstraints &constraints,
       proto::NodeCondition *best_condition, utils::RandomEngine *random,
-      PerThreadCache *cache)
+      PerThreadCache *cache,
+      cudaStream_t cuda_stream)
   {
     // This method looks for the best split using worker threads.
     //
@@ -1890,7 +1894,8 @@ namespace yggdrasil_decision_forests::model::decision_tree
           /*splitter_cache=*/&cache->splitter_cache_list[cache_idx],
           /*common=*/&common,
           /*seed=*/(*random)(),
-          /*num_oblique_projections_to_run=*/num_oblique_projections_to_run);
+          /*num_oblique_projections_to_run=*/num_oblique_projections_to_run,
+          /*cuda_stream=*/cuda_stream);
     };
 
     // Schedule all the oblique jobs.
@@ -2062,7 +2067,8 @@ namespace yggdrasil_decision_forests::model::decision_tree
       const proto::Node &parent, const InternalTrainConfig &internal_config,
       const LabelStats &label_stats, const NodeConstraints &constraints,
       proto::NodeCondition *best_condition, utils::RandomEngine *random,
-      PerThreadCache *cache)
+      PerThreadCache *cache,
+      cudaStream_t cuda_stream)
   {
     if (splitter_concurrency_setup.concurrent_execution)
     {
@@ -2070,14 +2076,14 @@ namespace yggdrasil_decision_forests::model::decision_tree
       return FindBestConditionConcurrentManager(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, splitter_concurrency_setup, parent, internal_config,
-          label_stats, constraints, best_condition, random, cache);
+          label_stats, constraints, best_condition, random, cache, cuda_stream);
     }
     else {
       // Single thread.
       return FindBestConditionSingleThreadManager(
           train_dataset, selected_examples, weights, config, config_link, dt_config,
           parent, internal_config, label_stats, constraints, best_condition, random,
-          cache);
+          cache, cuda_stream);
     }
   }
 
@@ -2092,7 +2098,8 @@ namespace yggdrasil_decision_forests::model::decision_tree
       const SplitterConcurrencySetup &splitter_concurrency_setup,
       const proto::Node &parent, const InternalTrainConfig &internal_config,
       const NodeConstraints &constraints, proto::NodeCondition *best_condition,
-      utils::RandomEngine *random, PerThreadCache *cache)
+      utils::RandomEngine *random, PerThreadCache *cache,
+      cudaStream_t cuda_stream)
   {
     switch (config.task())
     {
@@ -2126,7 +2133,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
       return FindBestConditionManager(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, splitter_concurrency_setup, parent, internal_config,
-          label_stat, constraints, best_condition, random, cache);
+          label_stat, constraints, best_condition, random, cache, cuda_stream);
     }
     break;
 
@@ -2158,7 +2165,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
         return FindBestConditionManager(
             train_dataset, selected_examples, weights, config, config_link,
             dt_config, splitter_concurrency_setup, parent, internal_config,
-            label_stat, constraints, best_condition, random, cache);
+            label_stat, constraints, best_condition, random, cache, cuda_stream);
       }
       else
       {
@@ -2174,7 +2181,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
         return FindBestConditionManager(
             train_dataset, selected_examples, weights, config, config_link,
             dt_config, splitter_concurrency_setup, parent, internal_config,
-            label_stat, constraints, best_condition, random, cache);
+            label_stat, constraints, best_condition, random, cache, cuda_stream);
       }
     }
     break;
@@ -2208,7 +2215,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
       return FindBestConditionManager(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, splitter_concurrency_setup, parent, internal_config,
-          label_stat, constraints, best_condition, random, cache);
+          label_stat, constraints, best_condition, random, cache, cuda_stream);
     }
     break;
 
@@ -2237,7 +2244,7 @@ namespace yggdrasil_decision_forests::model::decision_tree
       return FindBestConditionManager(
           train_dataset, selected_examples, weights, config, config_link,
           dt_config, splitter_concurrency_setup, parent, internal_config,
-          label_stat, constraints, best_condition, random, cache);
+          label_stat, constraints, best_condition, random, cache, cuda_stream);
     }
     break;
 
@@ -4888,7 +4895,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       const InternalTrainConfig &internal_config, NodeWithChildren *root,
       utils::RandomEngine *random,
       SelectedExamplesRollingBuffer selected_examples,
-      std::optional<SelectedExamplesRollingBuffer> leaf_examples)
+      std::optional<SelectedExamplesRollingBuffer> leaf_examples,
+      cudaStream_t cuda_stream)
   {
     if (config.monotonic_constraints_size() > 0)
     {
@@ -4972,7 +4980,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
           FindBestCondition(train_dataset, example_idxs.active, weights, config,
                             config_link, dt_config, splitter_concurrency_setup,
                             node->node(), internal_config, {}, &condition, random,
-                            &cache));
+                            &cache, cuda_stream));
       if (!has_better_condition)
       {
         // No good condition found. Close the branch.
@@ -5060,7 +5068,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       const proto::DecisionTreeTrainingConfig &dt_config,
       const model::proto::DeploymentConfig &deployment,
       const std::vector<float> &weights, utils::RandomEngine *random,
-      DecisionTree *dt, const InternalTrainConfig &internal_config)
+      DecisionTree *dt, const InternalTrainConfig &internal_config,
+      cudaStream_t cuda_stream)
   {
 
     /* #region Pre-flight checks */
@@ -5213,7 +5222,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       return DecisionTreeCoreTrain(
           train_dataset, config, config_link, dt_config, deployment,
           splitter_concurrency_setup, weights, random, internal_config, dt,
-          absl::MakeSpan(working_selected_examples), leaf_example_span);
+          absl::MakeSpan(working_selected_examples), leaf_example_span, cuda_stream);
     }
     // Multi-Threaded
     else
@@ -5226,13 +5235,13 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                                                   internal_config, weights,
                                                   &splitter_concurrency_setup));
 
-    return DecisionTreeCoreTrain(
+    return DecisionTreeCoreTrain( //calls NodeTrain internally
         train_dataset, config, config_link, dt_config, deployment,
         splitter_concurrency_setup, weights, random, internal_config, dt,
-        absl::MakeSpan(working_selected_examples), leaf_example_span);
+        absl::MakeSpan(working_selected_examples), leaf_example_span, cuda_stream);
   }
 
-  absl::Status FindBestConditionStartWorkers(
+  absl::Status FindBestConditionStartWorkers(//creates N worker threads
       const model::proto::TrainingConfig &config,
       const model::proto::TrainingConfigLinking &config_link,
       const proto::DecisionTreeTrainingConfig &dt_config,
@@ -5272,7 +5281,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       const std::vector<float> &weights, utils::RandomEngine *random,
       const InternalTrainConfig &internal_config, DecisionTree *dt,
       absl::Span<UnsignedExampleIdx> selected_examples,
-      std::optional<absl::Span<UnsignedExampleIdx>> leaf_examples)
+      std::optional<absl::Span<UnsignedExampleIdx>> leaf_examples,
+      cudaStream_t cuda_stream)
   {
     dt->CreateRoot();
     PerThreadCache cache;
@@ -5296,18 +5306,18 @@ return found_split ? SplitSearchResult::kBetterSplitFound
         absl::Status status =  NodeTrain(train_dataset, config, config_link, dt_config,
                                 deployment, splitter_concurrency_setup, weights, 1,
                                 internal_config, constraints, false, dt->mutable_root(),
-                                random, &cache, selected_examples_rb, leaf_examples_rb);
+                                random, &cache, selected_examples_rb, leaf_examples_rb, cuda_stream);
         #ifdef PROFILE2
           PrintDepthTimes();  
         #endif
         return status;
       }
       break;
-      case proto::DecisionTreeTrainingConfig::kGrowingStrategyBestFirstGlobal:
+      case proto::DecisionTreeTrainingConfig::kGrowingStrategyBestFirstGlobal: //not used for this paper for now
         return GrowTreeBestFirstGlobal(
             train_dataset, config, config_link, dt_config, deployment,
             splitter_concurrency_setup, weights, internal_config,
-            dt->mutable_root(), random, selected_examples_rb, leaf_examples_rb);
+            dt->mutable_root(), random, selected_examples_rb, leaf_examples_rb, cuda_stream);
         break;
       default:
         return absl::InvalidArgumentError("Grow strategy not set");
@@ -5328,7 +5338,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
       const NodeConstraints &constraints, bool set_leaf_already_set,
       NodeWithChildren *node, utils::RandomEngine *random, PerThreadCache *cache,
       SelectedExamplesRollingBuffer selected_examples,
-      std::optional<SelectedExamplesRollingBuffer> leaf_examples)
+      std::optional<SelectedExamplesRollingBuffer> leaf_examples,
+      cudaStream_t cuda_stream)
   {
     #ifdef CHRONO_ENABLED
       using namespace yggdrasil_decision_forests::chrono_prof;
@@ -5446,7 +5457,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
             *train_dataset_for_splitter, selected_examples_for_splitter, weights,
             config, config_link, dt_config, splitter_concurrency_setup,
             node->node(), internal_config, constraints,
-            node->mutable_node()->mutable_condition(), random, cache)
+            node->mutable_node()->mutable_condition(), random, cache, cuda_stream)
         );
 
     // ***** POST-PROCESS *****
@@ -5472,6 +5483,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                             dt_config.store_detailed_label_distribution());
 
     // Split Bag into +/-
+    dt_config.internal_error_on_wrong_splitter_statistics();
+
     ASSIGN_OR_RETURN(
         auto example_split,
         internal::SplitExamplesInPlace(
@@ -5578,7 +5591,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                   node_only_example_split.has_value()
                       ? std::optional<SelectedExamplesRollingBuffer>(
                             node_only_example_split->positive_examples)
-                      : std::nullopt));
+                      : std::nullopt,
+                    cuda_stream));
 
     // -
     if constexpr (PRINT_PROJECTION_MATRICES) {
@@ -5592,7 +5606,8 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                   node_only_example_split.has_value()
                       ? std::optional<SelectedExamplesRollingBuffer>(
                             node_only_example_split->negative_examples)
-                      : std::nullopt));
+                      : std::nullopt,
+                    cuda_stream));
 
     return absl::OkStatus();
   }
