@@ -809,9 +809,9 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
                   cudaStreamSynchronize(streams[tree_idx]);
                   cudaStreamDestroy(streams[tree_idx]);
                   
-                  auto train_end = std::chrono::steady_clock::now();
-                  std::chrono::duration<double, std::milli> train_duration = train_end - train_start;
-                  std::cout << "Tree " << tree_idx << " training time: " << train_duration.count() << " ms" << std::endl;
+                  // auto train_end = std::chrono::steady_clock::now();
+                  // std::chrono::duration<double, std::milli> train_duration = train_end - train_start;
+                  // std::cout << "Tree " << tree_idx << " training time: " << train_duration.count() << " ms" << std::endl;
 
 
                   start = std::chrono::high_resolution_clock::now();
@@ -1001,9 +1001,9 @@ It is probably the most well-known of the Decision Forest training algorithms.)"
         }
 
         /****** #endregion ******/
-        printf("Train tree pool joined\n");
-  
+        LOG(INFO) << "random_forest.cc Training block took: " << absl::ToDoubleSeconds(absl::Now() - begin_training) << " s";
 
+        std::exit(0);
 
         // Print all Timing info after done MultiThreading
         #ifdef CHRONO_ENABLED // part by Ariel

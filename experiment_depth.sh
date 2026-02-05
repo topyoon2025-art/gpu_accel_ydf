@@ -30,16 +30,18 @@ DATASETS=("$@")
 SPLIT_TYPES=("Exact" "Random" "Equal Width")
 GPU_USAGES=(0 1)
 
+DTG=$(date -u +"%Y%m%dT%H%M%SZ")
+
 COMMON_ARGS=(
   --input_mode=csv
-  --max_num_projections=100
   --num_trees=1
   --label_col=target
   --num_threads=1
+  --histogram_num_bins=255
   --tree_depth="$TREE_DEPTH"
 )
 
-OUTFILE="/home/ubuntu/projects/results/depth_times_all.csv"
+OUTFILE="/home/ubuntu/projects/results/depth_times_all_${DTG}.csv"
 echo "dataset,split_type,gpu_usage,depth,time_ms" > "$OUTFILE"
 
 for GPU in "${GPU_USAGES[@]}"; do
@@ -52,7 +54,7 @@ for GPU in "${GPU_USAGES[@]}"; do
     # Build flag list that does *not* change per-dataset:
     RUNTIME_ARGS=("${COMMON_ARGS[@]}"
                   "--numerical_split_type=${SPLIT_TYPE}"
-                  "--GPU_usage=${GPU}")
+                  "--run_gpu_accel=${GPU}")
 
     for csv in "${DATASETS[@]}"; do
       echo

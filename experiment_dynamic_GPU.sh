@@ -17,48 +17,47 @@ DATASETS=(
 )
 
 DTG=$(date -u +"%Y%m%dT%H%M%SZ")
-
 OUTDIR="/home/ubuntu/projects/results"
+
+# ===== CREATE SINGLE OUTPUT FILE =====
+CSV_FILE="$OUTDIR/results_benchmark_dynamic_threads_${DTG}.csv"
+echo "dataset,numerical_split_type,run_gpu_accel,num_threads,num_runs,valid_runs,avg_tree_ms,avg_total_s_final" > "$CSV_FILE"
+
+echo "==============================="
+echo "Output file: $CSV_FILE"
+echo "==============================="
 
 # Configurations
 SPLITS=(
-    "Random"
-    "Exact"
-    "Random"
-    "Exact"
+    "Dynamic Random Histogram"
+    # "Dynamic Random Histogram"
+    # "Exact"
+    # "Random"
 )
 
 GPU_ACCEL=(
     true
-    true
-    false
-    false
+    # false
+    # false
+    # false
 )
 
-# Thread values to test
-NUM_THREADS=(1 2 4 8 16)
+NUM_THREADS=(16 8 4 2 1)
 
-# Extract:
-# 1. Average of all "Tree X training time: Y ms" lines
-# 2. Total time from FINAL line like "Train tree 1000/1000 ... [total:5m40.74s ...]"
+# Extract function (same as before)
 extract_time() {
     awk '
-        # Match YDF log format: "Train tree X/Y ... [index:... total:... tree:...]"
         /Train[[:space:]]+tree[[:space:]]+[0-9]+\/[0-9]+/ {
-            # Extract X and Y from "tree X/Y"
             if (match($0, /tree[[:space:]]+([0-9]+)\/([0-9]+)/)) {
                 x_part = substr($0, RSTART, RLENGTH)
                 split(x_part, nums, /[[:space:]\/]+/)
-                current_tree = nums[2]  # X
-                total_trees = nums[3]   # Y
+                current_tree = nums[2]
+                total_trees = nums[3]
                 
-                # Only process if this is the final tree (X == Y)
                 if (current_tree == total_trees) {
-                    # Extract total time: format "1h25m12.62s" or "5m40.74s" or "123.45s"
                     if (match($0, /total:[0-9a-z\.]+/)) {
-                        total_str = substr($0, RSTART + 6, RLENGTH - 6)  # Skip "total:"
+                        total_str = substr($0, RSTART + 6, RLENGTH - 6)
                         
-                        # Parse format: "1h25m12.62s"
                         if (match(total_str, /([0-9]+)h([0-9]+)m([0-9\.]+)s/)) {
                             split(total_str, parts, /[hms]/)
                             hours = parts[1]
@@ -66,14 +65,12 @@ extract_time() {
                             seconds = parts[3]
                             final_total_s = hours * 3600 + minutes * 60 + seconds
                         }
-                        # Parse format: "5m40.74s"
                         else if (match(total_str, /([0-9]+)m([0-9\.]+)s/)) {
                             split(total_str, parts, /[ms]/)
                             minutes = parts[1]
                             seconds = parts[2]
                             final_total_s = minutes * 60 + seconds
                         }
-                        # Parse format: "123.45s"
                         else if (match(total_str, /([0-9\.]+)s/)) {
                             gsub(/s/, "", total_str)
                             final_total_s = total_str
@@ -83,7 +80,6 @@ extract_time() {
             }
         }
 
-        # Match: Tree X training time: Y ms
         /[Tt]ree[[:space:]]+[0-9]+[[:space:]]+training[[:space:]]+time[[:space:]]*:/ {
             if (match($0, /[0-9]+(\.[0-9]+)?[[:space:]]*ms/)) {
                 val = substr($0, RSTART, RLENGTH)
@@ -98,8 +94,6 @@ extract_time() {
                 avg_tree_ms = tree_sum / tree_count
             else
                 avg_tree_ms = ""
-
-            # Output: avg_tree_ms final_total_s
             print avg_tree_ms, final_total_s
         }
     '
@@ -111,16 +105,11 @@ extract_time() {
 for DATASET in "${DATASETS[@]}"; do
 
     DATASET_NAME=$(basename "$DATASET" .csv)
-    CSV_FILE="$OUTDIR/results_dynamic_G7e_${DATASET_NAME}_${DTG}.csv"
-
-    echo "dataset,numerical_split_type,run_gpu_accel,num_threads,num_runs,valid_runs,avg_tree_ms,avg_total_s_final" > "$CSV_FILE"
 
     echo
     echo "==============================="
     echo "Benchmarking dataset: $DATASET"
-    echo "Output: $CSV_FILE"
     echo "==============================="
-    echo
 
     for idx in "${!SPLITS[@]}"; do
         split="${SPLITS[$idx]}"
@@ -128,7 +117,6 @@ for DATASET in "${DATASETS[@]}"; do
 
         echo "=== numerical_split_type=\"$split\" | run_gpu_accel=$accel ==="
 
-        # Loop over thread counts
         for num_threads in "${NUM_THREADS[@]}"; do
             echo "  --- num_threads=$num_threads ---"
 
@@ -146,12 +134,11 @@ for DATASET in "${DATASETS[@]}"; do
                         --train_csv "$DATASET" \
                         --numerical_split_type "$split" \
                         --run_gpu_accel="$accel" \
-                        --tree_depth 2 \
+                        --tree_depth -1 \
                         --num_threads "$num_threads" \
-                        --num_trees 16 2>&1 | tee >(grep --line-buffered "Train tree" >&2)
+                        --num_trees 1000 2>&1 | tee >(grep --line-buffered "Train tree" >&2)
                 )"
 
-                # Extract 2 values
                 read avg_tree_ms final_total_s <<< "$(printf "%s" "$output" | extract_time)"
 
                 if [[ -z "$avg_tree_ms" ]]; then
@@ -162,7 +149,6 @@ for DATASET in "${DATASETS[@]}"; do
                 echo "    avg_tree_ms    = $avg_tree_ms ms"
                 echo "    final_total_s  = $final_total_s s"
 
-                # Accumulate
                 total_tree_ms=$(awk -v a="$total_tree_ms" -v b="$avg_tree_ms" 'BEGIN{printf "%.6f", a+b}')
                 total_total_s=$(awk -v a="$total_total_s" -v b="$final_total_s" 'BEGIN{printf "%.6f", a+b}')
 
@@ -182,7 +168,7 @@ for DATASET in "${DATASETS[@]}"; do
                 avg_total_s_final=""
             fi
 
-            # Write CSV row
+            # ===== APPEND TO SINGLE FILE (NOT CREATE NEW) =====
             echo "${DATASET_NAME},\"${split}\",${accel},${num_threads},${RUNS},${count},${avg_tree_ms_final},${avg_total_s_final}" >> "$CSV_FILE"
 
             echo
@@ -190,4 +176,8 @@ for DATASET in "${DATASETS[@]}"; do
     done
 done
 
-echo "All benchmarks complete. Results saved to $OUTDIR"
+echo
+echo "==============================="
+echo "All benchmarks complete."
+echo "Results saved to: $CSV_FILE"
+echo "==============================="

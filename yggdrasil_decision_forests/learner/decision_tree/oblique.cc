@@ -162,7 +162,7 @@ int GetNumProjections(const proto::DecisionTreeTrainingConfig& dt_config,
   const int target_num_projections =
       0.5 + std::ceil(std::pow(
                 num_numerical_features,
-                dt_config.sparse_oblique_split().num_projections_exponent())) * 1.5;
+                dt_config.sparse_oblique_split().num_projections_exponent()));
 
   return std::max(std::min(target_num_projections, max_num_projections),
                   min_num_projections);
@@ -305,7 +305,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     }
   }
   else {
-    if (dense_example_idxs.size() < 350 &&
+    if (dense_example_idxs.size() < 1500 &&
     (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM ||
     proto_type == proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM)) {
       // Set to EXACT so that later calls to EvaluateProjection use the exact code
