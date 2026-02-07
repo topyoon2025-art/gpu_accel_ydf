@@ -268,6 +268,36 @@ int main(int argc, char** argv) {
 
     tf_ds = std::make_unique<dataset::VerticalDataset>(std::move(ds));
     ds_ptr = tf_ds.get();
+
+    // Prepare data in a flat format for GPU
+    const size_t nrow = ds_ptr->nrow();
+    const size_t ncol = ds_ptr->ncol(); // Last column is label
+    std::vector<float> synthetic_flat_data(nrow * ncol);
+    
+    // // Use raw pointer for faster access
+    float* flat_ptr = synthetic_flat_data.data();
+
+    for (int col = 0; col < ncol - 1; ++col) {
+      const auto* numerical_col =
+          ds_ptr->ColumnWithCast<yggdrasil_decision_forests::dataset::VerticalDataset::NumericalColumn>(col);
+      const std::vector<float>& values = numerical_col->values();
+      std::memcpy(flat_ptr + col * nrow, values.data(), sizeof(float) * nrow); // Use memcpy if layout matches
+    }
+
+    cudaMalloc(&yggdrasil_decision_forests::dataset::d_global_flat_data, nrow * ncol * sizeof(float));
+    cudaMemcpy(yggdrasil_decision_forests::dataset::d_global_flat_data, synthetic_flat_data.data(), nrow * ncol * sizeof(float), cudaMemcpyHostToDevice);
+
+    // // Prepare labels
+    const auto* categorical_col =
+            ds_ptr->ColumnWithCast<yggdrasil_decision_forests::dataset::VerticalDataset::CategoricalColumn>(ncol - 1);//ncol = dataset->ncol() - 1 -> this is an index that is why,label column
+    const auto& dataset_labels = categorical_col->values();
+    std::vector<unsigned int> synthetic_labels_data(dataset_labels.begin(), dataset_labels.end());
+
+    cudaMalloc(&yggdrasil_decision_forests::dataset::d_global_labels_data, nrow * sizeof(int));
+    cudaMemcpy(yggdrasil_decision_forests::dataset::d_global_labels_data, synthetic_labels_data.data(), nrow * sizeof(int), cudaMemcpyHostToDevice);
+
+
+
   }
   else if (mode == "tfrecord") {
     std::cout << "\n\nReading TFRECORD\n\n";

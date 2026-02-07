@@ -256,22 +256,22 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   if (gpu_accel) {
     if (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM) {
-      // if (dense_example_idxs.size() >= 650) {
-      //   GPU_Random = true;
-      //   gpu_mode = 1; // GPU Random
-      // } else if (dense_example_idxs.size() >= 350) {
-      //   gpu_mode = -1; // CPU
-      // } else {
-      //   dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
-      //   gpu_mode = -1; // CPU
-      // }
-      if (dense_example_idxs.size() >= 1350) {
+      if (dense_example_idxs.size() >= 353000) {
         GPU_Random = true;
         gpu_mode = 1; // GPU Random
+      } else if (dense_example_idxs.size() >= 481) {
+        gpu_mode = -1; // CPU
       } else {
         dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
         gpu_mode = -1; // CPU
       }
+      // if (dense_example_idxs.size() >= 1350) {
+      //   GPU_Random = true;
+      //   gpu_mode = 1; // GPU Random
+      // } else {
+      //   dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
+      //   gpu_mode = -1; // CPU
+      // }
     }
     else if (proto_type == proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM) {
       if (dense_example_idxs.size() >= 2600) {
@@ -305,7 +305,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     }
   }
   else {
-    if (dense_example_idxs.size() < 1500 &&
+    if (dense_example_idxs.size() < 481 &&
     (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM ||
     proto_type == proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM)) {
       // Set to EXACT so that later calls to EvaluateProjection use the exact code

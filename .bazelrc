@@ -38,4 +38,4 @@ build --define=use_ydf_tensorflow_proto=1
 
 # Optimizations
 build:enable_std_upper_bound_avx2 --cxxopt="-mavx2" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"
-build:enable_std_upper_bound_avx512 --cxxopt="-mavx512f" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"
+build:enable_std_upper_bound_avx512 --cxxopt="-mavx512f" --cxxopt="-mfma" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"

@@ -17,9 +17,9 @@ BINARY="./bazel-bin/examples/train_oblique_forest"
 DATASETS=(
         # "/home/ubuntu/projects/dataset/524288x100.csv"
         # "/home/ubuntu/projects/dataset/100000x4096.csv"
-        "/home/ubuntu/projects/dataset/1000000x4096.csv"
+        # "/home/ubuntu/projects/dataset/1000000x4096.csv"
         "/home/ubuntu/projects/dataset/HIGGS1.csv"
-        "/home/ubuntu/projects/dataset/SUSY1.csv"
+        # "/home/ubuntu/projects/dataset/SUSY1.csv"
         )
 
 DTG=$(date -u +"%Y%m%dT%H%M%SZ")
@@ -40,13 +40,13 @@ echo "==============================="
 
 SPLITS=(
        
-        "Dynamic Random Histogram"  #Vectoriced with the compilation flag
-        "Random" #Vectorized with the compilation flag
+        "Dynamic Random Histogram"  
+        "Dynamic Random Histogram" #Vectorized with the compilation flag
         )
 
 GPU_ACCEL=(
            # true 
-            false
+            true
             false
            # false
             )

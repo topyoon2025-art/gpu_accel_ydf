@@ -49,8 +49,8 @@
 
 namespace yggdrasil_decision_forests {
 namespace dataset {
-    float* d_global_flat_data;
-	  unsigned int* d_global_labels_data;
+    float* d_global_flat_data = nullptr;
+	  unsigned int* d_global_labels_data = nullptr;
 namespace {
 
 using clock = std::chrono::steady_clock;
@@ -141,7 +141,6 @@ absl::Status LoadVerticalDatasetSingleThread(
   TIMER_PRINT0(dataset_load, "CPU Dataset Load Time taken");
   TIMER_PRINT0(data_prep_gpu, "GPU Data Prep Time taken");
   TIMER_PRINT0(warmup, "CUDA Warmup Time taken");
-
 
   return status.status();
 }
