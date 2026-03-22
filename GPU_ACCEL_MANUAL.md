@@ -69,6 +69,11 @@ Need to restart terminal to use miniconda for the first time
 		--cxxopt=-DPROFILE2   	#timing in training.cc for Depth  
 		--cxxopt=-DPROFILE3		#timing in oblique.cc for Split Types 
 		--cxxopt=-ALL_TIMING_OBLIQUE #All timing in oblique.cc  
+	bazel build //examples:train_oblique_forest
+     --repo_env=CUDA_HOME=/usr/local/cuda \
+     --repo_env=CUDA_PATH=/usr/local/cuda \
+     --verbose_failures \
+	 --cxxopt="-mavx512f" --cxxopt="-mfma" --cxxopt="-DENABLE_STD_UPPER_BOUND_VECTORIZATION=1"
 
 ## Files changed/modified from https://github.com/ariellubonja/yggdrasil-oblique-forests.git
 		modified:   .bazelrc
