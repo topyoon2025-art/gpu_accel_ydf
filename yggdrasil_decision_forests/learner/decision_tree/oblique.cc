@@ -256,10 +256,10 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
 
   if (gpu_accel) {
     if (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM) {
-      if (dense_example_idxs.size() >= 353000) {
+      if (dense_example_idxs.size() >= 28932) {
         GPU_Random = true;
         gpu_mode = 1; // GPU Random
-      } else if (dense_example_idxs.size() >= 481) {
+      } else if (dense_example_idxs.size() >= 552) {
         gpu_mode = -1; // CPU
       } else {
         dynamic_dt_config.mutable_numerical_split()->set_type(proto::NumericalSplit_Type_EXACT);
@@ -305,7 +305,7 @@ absl::StatusOr<bool> FindBestConditionSparseObliqueTemplate(
     }
   }
   else {
-    if (dense_example_idxs.size() < 481 &&
+    if (dense_example_idxs.size() < 552 &&
     (proto_type == proto::NumericalSplit_Type_DYNAMIC_RANDOM_HISTOGRAM ||
     proto_type == proto::NumericalSplit_Type_DYNAMIC_EQUAL_WIDTH_HISTOGRAM)) {
       // Set to EXACT so that later calls to EvaluateProjection use the exact code

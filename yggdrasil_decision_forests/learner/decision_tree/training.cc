@@ -2359,6 +2359,7 @@ struct SIMDUpperBoundBins {
 
 #if defined(__AVX512F__)
   // AVX-512 256-bin fast path data.
+  #pragma message("AVX-512 upper bound vectorization enabled")
   alignas(64) float thr256[256];   // fully aligned, 16-float groups => aligned group loads
   __m512  coarse16;                // packed coarse upper-bounds for 16 groups (last in each 16-block)
   bool    avx512_256 = false;
@@ -5308,6 +5309,7 @@ return found_split ? SplitSearchResult::kBetterSplitFound
                                 internal_config, constraints, false, dt->mutable_root(),
                                 random, &cache, selected_examples_rb, leaf_examples_rb, cuda_stream);
         #ifdef PROFILE2
+          #pragma message("PROFILE2 is enabled: printing depth times after training.")
           PrintDepthTimes();  
         #endif
         return status;
